@@ -1,3 +1,5 @@
-requests
-jinja2
-urllib3
+sudo apt install -y \
+    python3-requests \
+    python3-jinja2 \
+    python3-urllib3
+

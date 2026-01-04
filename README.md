@@ -1,31 +1,40 @@
 # Attack Surface Scanner
 
-A modular attack surface discovery and risk analysis tool for Linux (Kali-oriented).
-
-This tool performs:
-- Host discovery
-- Subdomain enumeration
-- Port scanning (Nmap)
-- Header & tech fingerprinting
-- Risk scoring
-- MITRE ATT&CK mapping
-- Attack path inference
-- Report export (JSON / HTML)
+A modular attack surface reconnaissance and analysis tool designed for Kali Linux.  
+This project helps security researchers and penetration testers quickly identify exposed services, misconfigurations, and potential attack paths.
 
 ---
 
-## ⚠️ Requirements
+## Features
 
-- Linux (Kali Linux recommended)
-- Python 3.9+
-- Root privileges (required for Nmap SYN scan)
+- Subdomain discovery (basic enumeration)
+- Host availability detection (HTTP / HTTPS)
+- Port scanning via Nmap (SYN scan)
+- HTTP header collection and analysis
+- Security header auditing
+- Technology fingerprinting
+- Risk scoring engine
+- Finding correlation & attack path inference
+- MITRE ATT&CK technique mapping
+- Cyber Kill Chain classification
+- HTML report generation
+- CSV / Markdown export support
+- Auto-update mechanism (Git-based)
 
 ---
 
-## 🛠 Installation
+## Supported Platform
 
-Clone the repository:
+✅ **Kali Linux (Officially Supported)**  
+⚠️ Other distributions are not officially supported.
+
+Root access is required for SYN port scanning.
+
+---
+
+## Installation (Kali Linux)
 ```bash
-git clone https://github.com/USERNAME/attack-surface-scanner.git
-cd attack-surface-scanner
+git clone https://github.com/mahdikh007/attack-surface.git
+cd attack-surface
+sudo ./setup.sh
 
