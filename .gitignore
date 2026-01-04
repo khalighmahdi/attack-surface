@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual Environments
+venv/
+.venv/
+
+# Environment & Secrets
+.env
+
+# Reports (generated data)
+reports/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
