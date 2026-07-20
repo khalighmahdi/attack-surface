@@ -1,53 +1,97 @@
-# modules/attack_path_engine.py
+"""
+modules/attack_path_engine.py
+==============================
+Infers possible attack paths from discovered data.
+
+Accepts the unified ScanContext (v0.7) — either a dict (legacy)
+or a dataclass — to read:
+    - alive_hosts
+    - ports
+    - admin_panels
+    - risk_scores
+"""
+
+from __future__ import annotations
+
 import logging
-from typing import List, Dict
 
 logger = logging.getLogger("AttackSurface")
 
-def build_attack_paths(data: Dict) -> List[Dict]:
-    """
-    Analyzes the collected data (ports, misconfigs, technologies) 
-    to infer potential attack paths an adversary might take.
-    """
-    attack_paths = []
-    
-    alive_hosts = data.get("alive_hosts", [])
-    
-    for host in alive_hosts:
-        ports = data.get("ports", {}).get(host, [])
-        misconfigs = data.get("misconfigurations", {}).get(host, {})
-        risk = data.get("risk_scores", {}).get(host, {})
 
-        if risk.get("score", 0) >= 5.0:
-            attack_paths.append({
-                "source_host": host,
-                "risk_score": risk["score"],
+def _norm(d):
+    if not d:
+        return ""
+    if isinstance(d, dict):
+        d = d.get("domain", "")
+    return str(d).replace("https://", "").replace("http://", "").split("/")[0].lower()
+
+
+def _get(d, *keys, default=None):
+    """Dict.get with chain support (dataclass OR dict)."""
+    for k in keys:
+        if d is None:
+            return default
+        if isinstance(d, dict):
+            d = d.get(k)
+        else:
+            d = getattr(d, k, None)
+    return d if d is not None else default
+
+
+def build_attack_paths(data):
+    paths = []
+
+    domains = [
+        _norm(h) for h in _get(data, "alive_hosts", default=[]) or []
+    ]
+    ports_map = _get(data, "ports", default={}) or {}
+    admins_map = _get(data, "admin_panels", default={}) or {}
+    risks_map = _get(data, "risk_scores", default={}) or {}
+
+    # risk_scores can be either {host: {score, ...}} or {host: {per_domain: ...}}
+    # in the new schema, risk_scores IS the per_domain dict.
+
+    for d in domains:
+        if not d:
+            continue
+
+        # 1. High-risk exposure
+        risk_info = risks_map.get(d, {}) if isinstance(risks_map, dict) else {}
+        if isinstance(risk_info, dict):
+            score = risk_info.get("score", 0)
+        else:
+            score = 0
+        if score and score >= 40:
+            paths.append({
+                "source_host": d,
                 "path_type": "High Risk Exposure",
-                "description": f"The host is highly exposed due to multiple factors (Score: {risk['score']}).",
-                "steps": ["Target Identification", "Initial Access via Exposed Services or Misconfiguration"]
+                "risk_score": score,
             })
 
-        # Path 1: Initial Access via Exposed RDP/SSH
-        for p in ports:
-            if p["port"] == 3389 and p["state"] == "open":
-                attack_paths.append({
-                    "source_host": host,
+        # 2. Service-based initial access (RDP)
+        host_ports = ports_map.get(d, {}) if isinstance(ports_map, dict) else {}
+        open_ports = host_ports.get("open_ports", []) if isinstance(host_ports, dict) else []
+        for p in open_ports:
+            if isinstance(p, dict) and p.get("port") == 3389:
+                paths.append({
+                    "source_host": d,
                     "target_service": "RDP",
                     "path_type": "Initial Access",
-                    "description": "RDP is exposed externally. This is a common path for brute-force attacks or credential stuffing.",
-                    "steps": ["RDP Port Scan", "Brute-force/Credential Access", "Internal Lateral Movement"]
                 })
-        
-        # Path 2: Initial Access via Web Application Vulnerabilities (inferred from technology/misconfig)
-        if misconfigs.get("missing"):
-            attack_paths.append({
-                "source_host": host,
-                "target_service": "Web Server",
-                "path_type": "Exploit Web App",
-                "description": "Lack of security headers (e.g., CSP, X-Frame-Options) indicates potential attack surface for XSS/Clickjacking, leading to Session Hijacking.",
-                "steps": ["Exploit Missing Header", "Session Hijacking", "Privilege Escalation"]
-            })
 
-    logger.info(f"Identified {len(attack_paths)} potential attack paths.")
-    return attack_paths
+        # 3. Admin panel correlation
+        host_admins = admins_map.get(d, []) if isinstance(admins_map, dict) else []
+        for a in host_admins:
+            if isinstance(a, dict) and a.get("panel_type") == "admin":
+                paths.append({
+                    "source_host": d,
+                    "target_service": "Admin Panel",
+                    "path_type": (
+                        "Critical Initial Access"
+                        if not a.get("protected")
+                        else "Authenticated Attack Surface"
+                    ),
+                })
 
+    logger.info("Identified %d attack paths", len(paths))
+    return paths

@@ -1,51 +1,175 @@
 # modules/risk_scoring.py
+
 import logging
 
-logger = logging.getLogger("AttackSurface")
+try:
+    from core.stream import ndjson_emit
+except Exception:
+    ndjson_emit = None
 
-# Risk Weights
-RISK_WEIGHTS = {
-    "open_port_base": 0.5,       # Base score per open port
-    "misconfig_major": 3,        # Score for missing critical security headers (e.g., CSP)
-    "misconfig_minor": 1.5,      # Score for other misconfigurations or info leaks
-    "critical_port": 5,          # Score boost for critical ports (21, 22, 23, 3389)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+
+# ==========================================================
+# Calibrated risk weights (aligned with v0.2.0)
+# ==========================================================
+FINDING_WEIGHTS = {
+    "MISSING_HSTS": 6,
+    "MISSING_CSP": 6,
+    "MISSING_X_FRAME_OPTIONS": 4,
+    "MISSING_X_CONTENT_TYPE_OPTIONS": 4,
+    "MISSING_REFERRER_POLICY": 3,
+    "ADMIN_PANEL_EXPOSED": 12,
 }
 
-def calculate_risk(host: str, ports: list, misconf: dict) -> dict:
-    """
-    Calculates a qualitative risk score (0-10) for a host based on findings.
-    """
-    score = 0
-    level = "low"
-    
-    # 1. Port Scoring
-    critical_ports = [21, 22, 23, 3389]
-    score += len(ports) * RISK_WEIGHTS["open_port_base"]
-    
-    for p in ports:
-        if p["port"] in critical_ports and p["state"] == "open":
-            # If a critical service is exposed
-            score += RISK_WEIGHTS["critical_port"]
-            logger.debug(f"Critical port {p['port']} open on {host}")
+SEVERITY_MULTIPLIER = {
+    "info": 0.5,
+    "low": 0.8,
+    "medium": 1.0,
+    "high": 1.2,
+    "critical": 1.4,
+}
 
-    # 2. Misconfiguration Scoring
-    if misconf:
-        # Penalize for missing headers
-        score += len(misconf.get("missing", [])) * RISK_WEIGHTS["misconfig_major"]
-        # Penalize for information leaks
-        score += len(misconf.get("info_leaks", [])) * RISK_WEIGHTS["misconfig_minor"]
-        
-    # 3. Normalization and Level Assignment (Max 10 for simplicity)
-    score = round(min(score, 10.0), 1)
+HIGH_RISK_PORTS = {
+    21: "FTP",
+    23: "Telnet",
+    25: "SMTP",
+    110: "POP3",
+    143: "IMAP",
+    3306: "MySQL",
+    5432: "PostgreSQL",
+    6379: "Redis",
+    27017: "MongoDB",
+}
 
-    if score >= 8.0:
-        level = "critical"
-    elif score >= 5.0:
-        level = "high"
-    elif score >= 2.0:
-        level = "medium"
-    
-    result = {"score": score, "level": level}
-    logger.info(f"Risk calculated for {host}: {level} ({score})")
-    return result
+# ==========================================================
+def _risk_level(score: float) -> str:
+    if score >= 75:
+        return "Critical"
+    elif score >= 40:
+        return "High"
+    elif score >= 20:
+        return "Medium"
+    return "Low"
+
+# ==========================================================
+def calculate_risk(events: list) -> dict:
+    """
+    Risk engine – calibrated to match v0.2.0 behavior
+    while keeping modern normalized logic.
+    """
+
+    logging.info("Calculating risk scores...")
+
+    per_domain = {}
+    seen_findings = set()
+    seen_admin_exposed = set()
+
+    # ------------------------------------------------------
+    # PASS 1: Normalized findings
+    # ------------------------------------------------------
+    for e in events:
+        if not isinstance(e, dict):
+            continue
+
+        etype = e.get("type")
+        domain = e.get("domain")
+        severity = e.get("severity", "medium")
+
+        if not etype or not domain:
+            continue
+        if etype not in FINDING_WEIGHTS:
+            continue
+
+        key = (domain, etype)
+        if key in seen_findings:
+            continue
+        seen_findings.add(key)
+
+        if etype == "ADMIN_PANEL_EXPOSED":
+            if domain in seen_admin_exposed:
+                continue
+            seen_admin_exposed.add(domain)
+
+        base = FINDING_WEIGHTS[etype]
+        score = int(base * SEVERITY_MULTIPLIER.get(severity, 1.0))
+
+        d = per_domain.setdefault(
+            domain, {"score": 0, "reasons": [], "attack_types": set()}
+        )
+
+        d["score"] += score
+        d["reasons"].append(f"{etype} ({severity})")
+        d["attack_types"].add("misconfiguration")
+
+    # ------------------------------------------------------
+    # PASS 2: Legacy modules
+    # ------------------------------------------------------
+    for e in events:
+        if not isinstance(e, dict):
+            continue
+
+        etype = e.get("type")
+        domain = e.get("domain")
+        if not etype or not domain:
+            continue
+
+        d = per_domain.setdefault(
+            domain, {"score": 0, "reasons": [], "attack_types": set()}
+        )
+
+        if etype == "OPEN_PORT":
+            port = e.get("port")
+            if port in HIGH_RISK_PORTS:
+                d["score"] += 10
+                d["reasons"].append(f"High-risk service on port {port}")
+                d["attack_types"].add("service_exposure")
+            elif port not in (80, 443):
+                d["score"] += 3
+                d["reasons"].append(f"Non-standard open port {port}")
+                d["attack_types"].add("non_standard_port")
+
+        elif etype == "admin_panel":
+            if not e.get("protected", True):
+                if domain not in seen_admin_exposed:
+                    seen_admin_exposed.add(domain)
+                    d["score"] += FINDING_WEIGHTS["ADMIN_PANEL_EXPOSED"]
+                    d["reasons"].append("ADMIN_PANEL_EXPOSED (unprotected)")
+                    d["attack_types"].add("admin_exposure")
+
+    # ------------------------------------------------------
+    # Finalization
+    # ------------------------------------------------------
+    for domain, d in per_domain.items():
+        if d["score"] == 0:
+            d["score"] = 5
+            d["reasons"].append("Baseline risk applied")
+
+        d["score"] = min(d["score"], 100)
+        d["level"] = _risk_level(d["score"])
+        d["attack_types"] = sorted(d["attack_types"])
+
+        if ndjson_emit:
+            ndjson_emit(
+                {
+                    "type": "risk_score",
+                    "domain": domain,
+                    "score": d["score"],
+                    "level": d["level"],
+                    "reasons": d["reasons"],
+                }
+            )
+
+    overall = round(
+        sum(d["score"] for d in per_domain.values()) / len(per_domain)
+        if per_domain else 0,
+        2,
+    )
+
+    logging.info(f"Risk scoring completed. Overall score: {overall:.2f}")
+
+    return {
+        "per_domain": per_domain,
+        "overall_score": overall,
+        "overall_level": _risk_level(overall),
+    }
 

@@ -1,45 +1,64 @@
-# modules/mitre_mapping.py
+"""
+modules/mitre_mapping.py
+=========================
+Maps attack paths to MITRE ATT&CK techniques.
+"""
+
+from __future__ import annotations
+
 import logging
 
 logger = logging.getLogger("AttackSurface")
 
-# Simplified Mapping for demonstration purposes
 MITRE_ATTACK_MAPPING = {
     "Missing Security Header": "T1190 - Exploit Public-Facing Application",
     "Information Leak": "T1592 - Gather Victim Host Information",
     "Open SSH": "T1078.004 - Valid Accounts: SSH",
     "Open RDP": "T1021.001 - Remote Services: RDP",
+    "High Risk Exposure": "T1190 - Exploit Public-Facing Application",
+    "Initial Access": "T1133 - External Remote Services",
+    "Critical Initial Access": "T1078 - Valid Accounts",
+    "Authenticated Attack Surface": "T1078 - Valid Accounts",
+    "Admin Panel": "T1078 - Valid Accounts",
+    "RDP": "T1021.001 - Remote Services: RDP",
 }
 
-def map_attack_paths_to_mitre(attack_paths: list) -> list:
-    """
-    Maps elements of the attack paths (or findings) to relevant MITRE ATT&CK techniques.
-    """
-    mitre_entries = []
-    
-    for path in attack_paths:
-        host = path.get("source_host") 
-        techniques = set()
-        
-        # Check findings (path["steps"] would contain detailed findings)
-        if "Missing Security Header" in path.get("description", ""):
-            techniques.add(MITRE_ATTACK_MAPPING["Missing Security Header"])
-            
-        if "Server Information" in path.get("description", ""):
-            techniques.add(MITRE_ATTACK_MAPPING["Information Leak"])
 
-        if path.get("target_service") == "SSH":
-            techniques.add(MITRE_ATTACK_MAPPING["Open SSH"])
-        
-        if path.get("target_service") == "RDP":
-            techniques.add(MITRE_ATTACK_MAPPING["Open RDP"])
+def map_attack_paths_to_mitre(attack_paths):
+    """
+    Map each attack path to one or more MITRE techniques.
+
+    Returns a list of {"host": str, "techniques": [str, ...]}.
+    """
+    if not isinstance(attack_paths, list):
+        logger.warning("map_attack_paths_to_mitre: expected list, got %s",
+                       type(attack_paths).__name__)
+        return []
+
+    mitre_entries = []
+
+    for path in attack_paths:
+        if not isinstance(path, dict):
+            continue
+
+        host = path.get("source_host") or path.get("host")
+        techniques = set()
+        description = path.get("description", "") or ""
+
+        # Map by path_type and target_service
+        path_type = path.get("path_type", "")
+        target_service = path.get("target_service", "")
+
+        for keyword, technique in MITRE_ATTACK_MAPPING.items():
+            haystack = " ".join([path_type, target_service, description])
+            if keyword.lower() in haystack.lower():
+                techniques.add(technique)
 
         if techniques:
             mitre_entries.append({
                 "host": host,
-                "techniques": list(techniques)
+                "techniques": sorted(techniques),
             })
 
-    logger.info(f"Mapped {len(mitre_entries)} hosts to MITRE techniques.")
+    logger.info("Mapped %d hosts to MITRE techniques", len(mitre_entries))
     return mitre_entries
-

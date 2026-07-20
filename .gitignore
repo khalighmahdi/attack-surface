@@ -12,6 +12,8 @@ venv/
 
 # Reports (generated data)
 reports/
+# Sample / one-off HTML reports in the project root
+/report_*.html
 
 # IDE / OS
 .idea/

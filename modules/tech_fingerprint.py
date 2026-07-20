@@ -1,41 +1,156 @@
-# modules/tech_fingerprint.py
 import logging
+import requests
 
-logger = logging.getLogger("AttackSurface")
+try:
+    from core.stream import ndjson_emit
+except Exception:
+    ndjson_emit = None
 
-# Simple, non-exhaustive mapping based on common headers
-KNOWN_TECH_MAP = {
-    "server": {
-        "nginx": "NGINX Web Server",
-        "apache": "Apache HTTP Server",
-        "iis": "Microsoft IIS",
-        "cloudflare": "Cloudflare CDN/WAF",
-    },
-    "x-powered-by": {
-        "php": "PHP Language",
-        "asp.net": "ASP.NET Framework",
-        "express": "Node.js/Express Framework",
-    },
-    "set-cookie": {
-        "laravel_session": "Laravel Framework",
-        "wordpress_": "WordPress CMS",
-        "jsessionid": "Java/JSP Application",
-    }
-}
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s - %(message)s"
+)
 
-def fingerprint_from_headers(headers: dict) -> list:
+
+def fingerprint_technologies(alive_hosts: list) -> dict:
     """
-    Identifies technologies based on HTTP response headers.
+    Performs basic technology fingerprinting for alive hosts.
+    Returns:
+        {
+            domain: {
+                url,
+                status_code,
+                technologies: []
+            }
+        }
     """
-    detected_tech = set()
-    
-    for header_name, mappings in KNOWN_TECH_MAP.items():
-        header_value = headers.get(header_name)
-        if header_value:
-            for keyword, tech_name in mappings.items():
-                if keyword in header_value.lower():
-                    detected_tech.add(tech_name)
-                    
-    logger.debug(f"Technologies detected: {list(detected_tech)}")
-    return list(detected_tech)
+
+    tech_results = {}
+    logging.info("Starting technology fingerprinting for %d hosts...", len(alive_hosts))
+
+    for host_info in alive_hosts:
+        domain = host_info.get("domain")
+        ip = host_info.get("ip")
+
+        target_url = domain
+        if not domain.startswith(("http://", "https://")):
+            target_url = f"https://{domain}"
+
+        detected_techs = []
+
+        try:
+            response = requests.get(
+                target_url,
+                timeout=5,
+                allow_redirects=True
+            )
+
+            body = response.text.lower()
+            server = response.headers.get("server", "").lower()
+
+            # -------------------------
+            # Basic fingerprinting
+            # -------------------------
+            if "wordpress" in body:
+                detected_techs.append("WordPress")
+
+            if "nginx" in server:
+                detected_techs.append("Nginx")
+
+            if "apache" in server:
+                detected_techs.append("Apache")
+
+            if "<!doctype html>" in body or "<html" in body:
+                detected_techs.append("HTML")
+
+            # -------------------------
+            # JS Frameworks (simple)
+            # -------------------------
+            if "vue.js" in body or "nuxt" in body:
+                detected_techs.append("Vue.js / Nuxt.js")
+
+            if "react" in body:
+                detected_techs.append("React")
+
+            if "angular" in body:
+                detected_techs.append("Angular")
+
+            # -------------------------
+            # X-Powered-By
+            # -------------------------
+            powered_by = response.headers.get("x-powered-by", "").lower()
+            if "php" in powered_by:
+                detected_techs.append("PHP")
+            elif "asp.net" in powered_by:
+                detected_techs.append("ASP.NET")
+
+            # -------------------------
+            # Cookies
+            # -------------------------
+            cookies = response.headers.get("set-cookie", "").lower()
+            if "wordpress" in cookies:
+                detected_techs.append("WordPress Cookie")
+
+            if "jsessionid" in cookies:
+                detected_techs.append("Java/JSP Session")
+
+            detected_techs = sorted(set(detected_techs))
+
+            tech_results[domain] = {
+                "url": response.url,
+                "status_code": response.status_code,
+                "technologies": detected_techs
+            }
+
+            # -------------------------
+            # NDJSON event
+            # -------------------------
+            if ndjson_emit:
+                ndjson_emit({
+                    "type": "technology_fingerprint",
+                    "domain": domain,
+                    "ip": ip,
+                    "url": response.url,
+                    "status_code": response.status_code,
+                    "technologies": detected_techs
+                })
+
+            logging.debug(
+                "Fingerprinted %s → %s",
+                domain,
+                ", ".join(detected_techs) if detected_techs else "none"
+            )
+
+        except requests.RequestException as e:
+            logging.warning("Could not fingerprint %s: %s", domain, e)
+            tech_results[domain] = {
+                "error": str(e),
+                "technologies": []
+            }
+
+            if ndjson_emit:
+                ndjson_emit({
+                    "type": "technology_fingerprint",
+                    "domain": domain,
+                    "ip": ip,
+                    "error": str(e)
+                })
+
+        except Exception as e:
+            logging.error("Unexpected error during fingerprinting %s: %s", domain, e)
+            tech_results[domain] = {
+                "error": str(e),
+                "technologies": []
+            }
+
+            if ndjson_emit:
+                ndjson_emit({
+                    "type": "technology_fingerprint",
+                    "domain": domain,
+                    "ip": ip,
+                    "error": str(e)
+                })
+
+    logging.info("Technology fingerprinting completed.")
+    return tech_results
 

@@ -3,3 +3,6 @@ sudo apt install -y \
     python3-jinja2 \
     python3-urllib3
 
+requests
+beautifulsoup4 # For future web parsing if needed, good to include
+	
