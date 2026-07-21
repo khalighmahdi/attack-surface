@@ -59,6 +59,10 @@ class ScannerRunner:
         skip_historical: bool = False,
         skip_origin: bool = False,
         max_subdomains: int = 50,
+        rate_limiter=None,
+        scope=None,
+        checkpoint_path: str | None = None,
+        resume_from: str | None = None,
     ):
         self.skip_ports = skip_ports
         self.skip_admin = skip_admin
@@ -66,6 +70,13 @@ class ScannerRunner:
         self.skip_historical = skip_historical
         self.skip_origin = skip_origin
         self.max_subdomains = max_subdomains
+        # New: rate limiting, scope validation, checkpointing
+        from core.rate_limiter import get_limiter
+        self.limiter = rate_limiter or get_limiter()
+        from core.scope import ScopeFilter
+        self.scope = scope or ScopeFilter(primary="__unset__")
+        self.checkpoint_path = checkpoint_path
+        self.resume_from = resume_from
 
     # ------------------------------------------------------------------
     # Phase helpers
@@ -128,11 +139,39 @@ class ScannerRunner:
             logger.warning("  No alive hosts; skipping port/header/tech scans")
             return
 
+        # CDN detection pass: tag each host so we can skip port-scanning
+        # any CDN-fronted target (scanning Cloudflare IPs gets us banned).
+        from modules.cdn_detector import detect_cdn
+        cdn_hosts = []
+        for h in ctx.alive_hosts:
+            if isinstance(h, dict):
+                ip = h.get("ip")
+                if ip:
+                    cdn = detect_cdn(ip)
+                    if cdn:
+                        h["cdn"] = cdn
+                        cdn_hosts.append((h.get("domain"), cdn))
+        if cdn_hosts:
+            logger.warning(
+                "%d host(s) behind a CDN: %s",
+                len(cdn_hosts),
+                ", ".join(f"{d} ({c})" for d, c in cdn_hosts),
+            )
+
         if not self.skip_ports:
             logger.info("[Phase 2] Probing: port scan (nmap)")
             from modules.ports import scan_ports
-            ports_result = self._safe("scan_ports", scan_ports, ctx.alive_hosts) or {}
-            ctx.ports = ports_result if isinstance(ports_result, dict) else {}
+            # Skip port scanning for CDN-fronted hosts
+            cdn_free = [h for h in ctx.alive_hosts
+                        if not (isinstance(h, dict) and h.get("cdn"))]
+            skipped = len(ctx.alive_hosts) - len(cdn_free)
+            if skipped:
+                logger.info("  port scan: skipping %d CDN-fronted host(s)", skipped)
+            if cdn_free:
+                ports_result = self._safe("scan_ports", scan_ports, cdn_free) or {}
+                ctx.ports = ports_result if isinstance(ports_result, dict) else {}
+            else:
+                ctx.ports = {}
             # Emit risk events for open high-risk ports
             from modules.risk_scoring import HIGH_RISK_PORTS
             for host, info in ctx.ports.items():
@@ -358,6 +397,52 @@ class ScannerRunner:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+    def _checkpoint(self, ctx, phase_name: str) -> None:
+        """Save a checkpoint if a path is configured. Never raises."""
+        if not self.checkpoint_path:
+            return
+        # Mark the phase as completed on the ctx so we can skip it on resume
+        if not hasattr(ctx, "_completed_phases"):
+            ctx._completed_phases = []
+        ctx._completed_phases.append(phase_name)
+        from core.checkpoint import save_checkpoint
+        save_checkpoint(ctx, self.checkpoint_path)
+        logger.debug("Checkpoint after %s -> %s", phase_name, self.checkpoint_path)
+
+    def _maybe_resume(self, ctx) -> set:
+        """
+        Load a checkpoint (if configured) and merge its data into `ctx`.
+        Returns the set of phases that were already completed in the
+        checkpoint so the caller can skip them.
+        """
+        from core.checkpoint import load_checkpoint, completed_phases
+        if not self.resume_from:
+            return set()
+        cp = load_checkpoint(self.resume_from)
+        if cp is None:
+            logger.warning("Resume file %s missing or invalid; starting fresh", self.resume_from)
+            return set()
+        # Merge saved state into the current ctx (saved wins for already-done data)
+        ctx.domain = cp.domain or ctx.domain
+        ctx.subdomains = cp.subdomains or ctx.subdomains
+        ctx.alive_hosts = cp.alive_hosts or ctx.alive_hosts
+        ctx.ports = cp.ports or ctx.ports
+        ctx.headers = cp.headers or ctx.headers
+        ctx.technologies = cp.technologies or ctx.technologies
+        ctx.admin_panels = cp.admin_panels or ctx.admin_panels
+        ctx.primary_admin_panels = cp.primary_admin_panels or ctx.primary_admin_panels
+        ctx.origin_ips = cp.origin_ips or ctx.origin_ips
+        ctx.risk_scores = cp.risk_scores or ctx.risk_scores
+        ctx.attack_paths = cp.attack_paths or ctx.attack_paths
+        ctx.mitre_attack = cp.mitre_attack or ctx.mitre_attack
+        ctx.kill_chain = cp.kill_chain or ctx.kill_chain
+        ctx.findings = cp.findings or ctx.findings
+        done = set(completed_phases(cp))
+        if done:
+            logger.info("Resumed from %s: %d phase(s) already done",
+                        self.resume_from, len(done))
+        return done
+
     def run_full_scan(self, domain: str):
         """
         Run the full scan pipeline and return the populated ScanContext.
@@ -367,24 +452,50 @@ class ScannerRunner:
         domain = sanitize_domain(domain)
         ctx = ScanContext(domain=domain)
 
+        # Resume support: figure out which phases we can skip
+        done = self._maybe_resume(ctx)
+
         logger.info("=" * 60)
         logger.info("Attack Surface Scanner %s", ctx.version)
         logger.info("Target: %s", domain)
+        logger.info("Rate limiter: %s", self.limiter)
+        logger.info("Scope: %s", self.scope)
         logger.info("=" * 60)
 
         init_ndjson()
         ndjson_emit({"type": "scan_start", "target": domain, "version": ctx.version})
 
         try:
-            self._phase_discovery(ctx)
-            self._phase_probing(ctx)
-            self._phase_admin_origin(ctx)
-            self._phase_analysis(ctx)
-            self._phase_visualization(ctx)
+            if "discovery" not in done:
+                self._phase_discovery(ctx); self._checkpoint(ctx, "discovery")
+            else:
+                logger.info("[Phase 1] Discovery: SKIPPED (resumed)")
+            if "probing" not in done:
+                self._phase_probing(ctx); self._checkpoint(ctx, "probing")
+            else:
+                logger.info("[Phase 2] Probing: SKIPPED (resumed)")
+            if "admin_origin" not in done:
+                self._phase_admin_origin(ctx); self._checkpoint(ctx, "admin_origin")
+            else:
+                logger.info("[Phase 3] Admin/Origin: SKIPPED (resumed)")
+            if "analysis" not in done:
+                self._phase_analysis(ctx); self._checkpoint(ctx, "analysis")
+            else:
+                logger.info("[Phase 4] Analysis: SKIPPED (resumed)")
+            if "visualization" not in done:
+                self._phase_visualization(ctx); self._checkpoint(ctx, "visualization")
+            else:
+                logger.info("[Phase 5] Visualization: SKIPPED (resumed)")
+            # Always re-export (cheap and the user just asked for a report)
             self._phase_export(ctx)
         finally:
             ndjson_emit({"type": "scan_end", "target": domain, "errors": len(ctx.errors)})
             close_ndjson()
+
+        # Print rate-limiter stats so the user knows what the throttle cost
+        stats = self.limiter.stats  # @property -> dict
+        logger.info("Rate limiter: %d reqs, %.1fms total wait",
+                    stats.get("total_acquired", 0), stats.get("total_waited_ms", 0.0))
 
         logger.info("=" * 60)
         logger.info("Scan complete. Errors: %d", len(ctx.errors))

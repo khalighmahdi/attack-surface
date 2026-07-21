@@ -39,6 +39,12 @@ def fingerprint_technologies(alive_hosts: list) -> dict:
         detected_techs = []
 
         try:
+            # Respect the global rate limiter
+            try:
+                from core.rate_limiter import get_limiter
+                get_limiter().acquire()
+            except Exception:
+                pass
             response = requests.get(
                 target_url,
                 timeout=5,

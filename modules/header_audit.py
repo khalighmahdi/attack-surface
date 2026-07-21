@@ -32,6 +32,12 @@ def audit_headers(alive_hosts: List[dict]) -> Dict[str, dict]:
         target_url = f"{protocol}://{domain}"
 
         try:
+            # Respect the global rate limiter
+            try:
+                from core.rate_limiter import get_limiter
+                get_limiter().acquire()
+            except Exception:
+                pass
             response = requests.get(
                 target_url,
                 timeout=5,

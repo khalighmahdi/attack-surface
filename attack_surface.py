@@ -20,6 +20,7 @@ import logging
 import os
 import sys
 import time
+from pathlib import Path
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -63,6 +64,38 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--max-subdomains", type=int, default=50,
         help="Cap subdomain enumeration to avoid runaway scans (default: 50)",
+    )
+    p.add_argument(
+        "--rate", type=float, default=5.0,
+        help="Max HTTP requests per second to the target (default: 5). "
+             "Lower this if you hit a WAF or get rate-limited.",
+    )
+    p.add_argument(
+        "--burst", type=int, default=10,
+        help="Token-bucket burst size (default: 10). The scanner can save up "
+             "to this many tokens when idle, then spend them in a burst.",
+    )
+    p.add_argument(
+        "--no-throttle", action="store_true",
+        help="Disable rate limiting (very fast, but risks WAF bans).",
+    )
+    p.add_argument(
+        "--scope", type=str, default=None,
+        help="Path to a scope file: one allowed domain (or suffix) per line. "
+             "If omitted, only the exact -d domain is considered in-scope.",
+    )
+    p.add_argument(
+        "--resume", type=str, default=None,
+        help="Resume from a previous scan's checkpoint file (.json).",
+    )
+    p.add_argument(
+        "--checkpoint", type=str, default="reports/checkpoint.json",
+        help="Where to write the resume checkpoint (default: "
+             "reports/checkpoint.json). Use --no-checkpoint to disable.",
+    )
+    p.add_argument(
+        "--no-checkpoint", action="store_true",
+        help="Disable checkpoint writing (useful for ephemeral scans).",
     )
     p.add_argument(
         "--update", action="store_true",
@@ -180,6 +213,17 @@ def main(argv=None) -> int:
         os.chdir(project_root)
     sys.path.insert(0, project_root)
 
+    # Configure the rate limiter before anything that does network I/O
+    from core.rate_limiter import configure as configure_limiter
+    limiter = configure_limiter(rate=args.rate, burst=args.burst)
+    logging.info("Rate limiter: %s", limiter)
+
+    # Load the in-scope domain list (for subdomain filtering)
+    from core.scope import load_scope
+    scope = load_scope(args.scope, primary=domain)
+    if args.scope:
+        logging.info("Loaded scope: %d entries (primary=%s)", len(scope), domain)
+
     # Build the runner
     from core.runner import ScannerRunner
     runner = ScannerRunner(
@@ -189,6 +233,10 @@ def main(argv=None) -> int:
         skip_historical=args.no_historical,
         skip_origin=args.no_origin,
         max_subdomains=args.max_subdomains,
+        rate_limiter=limiter,
+        scope=scope,
+        checkpoint_path=None if args.no_checkpoint else args.checkpoint,
+        resume_from=args.resume,
     )
 
     print(f"[+] Attack Surface Scanner v0.7.0")
