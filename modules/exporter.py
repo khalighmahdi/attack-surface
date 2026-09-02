@@ -239,3 +239,15 @@ def export_markdown(results: Dict[str, Any], filename: str) -> None:
     except Exception as e:
         logging.error("Markdown export failed: %s", e)
 
+
+
+# -------------------------------------------------
+# JSON Export
+# -------------------------------------------------
+def export_json(results: Dict[str, Any], filename: str) -> None:
+    """Full machine-readable report (for CI / dashboards)."""
+    import json as _json
+    logging.info("Exporting results to JSON: %s", filename)
+    with open(filename, "w", encoding="utf-8") as f:
+        _json.dump(results, f, ensure_ascii=False, indent=2, default=str)
+    logging.info("JSON export completed successfully.")
