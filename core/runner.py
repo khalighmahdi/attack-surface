@@ -63,7 +63,20 @@ class ScannerRunner:
         scope=None,
         checkpoint_path: str | None = None,
         resume_from: str | None = None,
+        use_baseline: bool = True,
+        syslog_target: str | None = None,
+        webhook_url: str | None = None,
+        telegram_token: str | None = None,
+        telegram_chat: str | None = None,
+        map_cves: bool = False,
     ):
+        self.use_baseline = use_baseline
+        self.syslog_target = syslog_target
+        self.webhook_url = webhook_url
+        self.telegram_token = telegram_token
+        self.telegram_chat = telegram_chat
+        self.map_cves = map_cves
+        self.blue_team_report: dict | None = None
         self.skip_ports = skip_ports
         self.skip_admin = skip_admin
         self.skip_mx = skip_mx
@@ -407,6 +420,80 @@ class ScannerRunner:
             "errors": len(ctx.errors),
         })
 
+    def _phase_blue_team(self, ctx: ScanContext) -> None:
+        """Baseline diff, takeover check, CVE watchlist, SOC telemetry."""
+        from modules.baseline import load_baseline, save_baseline, diff
+        logger.info("[Phase 5.5] Blue-team: baseline diff")
+        try:
+            prev = load_baseline(ctx.domain) if self.use_baseline else None
+            if prev is not None:
+                from modules.baseline import _snapshot
+                delta = diff(_snapshot(ctx), prev)
+                changed = any(delta.values())
+                ctx.blue_team_diff = delta
+                if changed:
+                    logger.warning("  baseline CHANGED: %s",
+                                   {k: len(v) for k, v in delta.items() if v})
+                    for nh in delta.get("NEW_SETUP_PAGES", []):
+                        ctx.add_event({"type": "SETUP_PAGE_EXPOSED",
+                                       "domain": nh.get("host"),
+                                       "url": nh.get("url"),
+                                       "severity": "critical"})
+                else:
+                    logger.info("  baseline unchanged")
+            if self.use_baseline:
+                save_baseline(ctx)
+        except Exception as e:
+            logger.warning("baseline diff failed: %s", e)
+
+        logger.info("[Phase 5.5] Blue-team: takeover check")
+        try:
+            from modules.takeover_check import check_takeover
+            tk = self._safe("check_takeover", check_takeover,
+                            ctx.alive_hosts, rate_limiter=self.limiter) or []
+            if tk:
+                ctx.takeover_risks = tk
+                for f in tk:
+                    ctx.add_event({"type": "SUBDOMAIN_TAKEOVER",
+                                   "domain": f.get("host"),
+                                   "service": f.get("service"),
+                                   "severity": "critical"})
+                logger.warning("  -> %d possible takeover(s)!", len(tk))
+        except Exception as e:
+            logger.warning("takeover check failed: %s", e)
+
+        if self.map_cves:
+            logger.info("[Phase 5.5] Blue-team: CVE watchlist (NVD)")
+            try:
+                from modules.cve_mapper import map_cves
+                ctx.cve_watchlist = self._safe(
+                    "map_cves", map_cves, ctx.technologies) or {}
+                total = sum(len(h.get("cves", []))
+                            for v in ctx.cve_watchlist.values() for h in v)
+                logger.info("  -> %d CVE(s) on watchlist", total)
+            except Exception as e:
+                logger.warning("cve mapping failed: %s", e)
+
+        # SOC telemetry
+        if ctx.events and (self.syslog_target or self.webhook_url or self.telegram_token):
+            logger.info("[Phase 5.5] Blue-team: SOC telemetry")
+            try:
+                from modules import telemetry
+                if self.syslog_target:
+                    host, _, port = self.syslog_target.partition(":")
+                    n = telemetry.send_syslog(ctx.events, host,
+                                              int(port) if port else 514)
+                    logger.info("  syslog: %d events sent", n)
+                if self.webhook_url:
+                    n = telemetry.push_webhook(ctx.events, self.webhook_url)
+                    logger.info("  webhook: %d alerts", n)
+                if self.telegram_token and self.telegram_chat:
+                    n = telemetry.push_telegram(ctx.events, self.telegram_token,
+                                                self.telegram_chat)
+                    logger.info("  telegram: %d alerts", n)
+            except Exception as e:
+                logger.warning("telemetry failed: %s", e)
+
     def _phase_export(self, ctx: ScanContext) -> str:
         logger.info("[Phase 6] Export: reports")
         results = ctx.to_report_dict()
@@ -548,6 +635,7 @@ class ScannerRunner:
                 self._phase_visualization(ctx); self._checkpoint(ctx, "visualization")
             else:
                 logger.info("[Phase 5] Visualization: SKIPPED (resumed)")
+            self._phase_blue_team(ctx); self._checkpoint(ctx, "blue_team")
             # Always re-export (cheap and the user just asked for a report)
             self._phase_export(ctx)
         finally:
