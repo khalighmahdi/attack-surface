@@ -260,7 +260,7 @@ def main(argv=None) -> int:
     elapsed = time.time() - t0
     print(f"\n[+] Scan completed in {elapsed:.1f}s")
     print_summary(ctx)
-    return 0 if not ctx.errors else 0  # soft errors don't fail the run
+    return 1 if ctx.errors else 0  # soft errors are reported but don't abort earlier
 
 
 if __name__ == "__main__":

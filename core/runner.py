@@ -98,6 +98,16 @@ class ScannerRunner:
         logger.info("[Phase 1] Discovery: subdomains")
         from modules.subdomains import enumerate_subdomains
         subs = self._safe("enumerate_subdomains", enumerate_subdomains, ctx.domain) or []
+        # Scope enforcement: drop out-of-scope hosts before any probing
+        if self.scope is not None:
+            scoped = []
+            for s in set(subs):
+                decision = self.scope.check(s)
+                if decision.allowed:
+                    scoped.append(s)
+                else:
+                    logger.warning("  out-of-scope host dropped: %s", s)
+            subs = scoped
         # Cap to avoid runaway scans
         ctx.subdomains = sorted(set(subs))[: self.max_subdomains]
         logger.info("  -> %d subdomains", len(ctx.subdomains))
@@ -120,12 +130,17 @@ class ScannerRunner:
                 hist = self._safe("discover_historical_origins",
                                   discover_historical_origins, ctx.domain) or []
                 if isinstance(hist, list):
-                    ctx.historical_dns = hist
-                    # Add origin candidates to subdomains (for alive probing)
+                    # keep only in-scope historical entries
+                    kept = []
                     for item in hist:
                         sub = item.get("subdomain")
+                        if sub and self.scope is not None and not self.scope.check(sub).allowed:
+                            logger.warning("  out-of-scope historical host dropped: %s", sub)
+                            continue
+                        kept.append(item)
                         if sub and sub not in ctx.subdomains:
                             ctx.subdomains.append(sub)
+                    ctx.historical_dns = kept
             except ImportError:
                 logger.warning("  historical_dns_discovery not available")
 
@@ -376,8 +391,7 @@ class ScannerRunner:
         html_path = ""
         try:
             from modules.report import generate_html_report
-            generate_html_report(results)
-            html_path = "reports/html/report.html"
+            html_path = generate_html_report(results) or ""
         except Exception as e:
             logger.warning("HTML report failed: %s", e)
 
@@ -409,13 +423,24 @@ class ScannerRunner:
         save_checkpoint(ctx, self.checkpoint_path)
         logger.debug("Checkpoint after %s -> %s", phase_name, self.checkpoint_path)
 
+    # Mapping: pipeline phase -> checkpoint data-field names.
+    # A pipeline phase counts as "done" when ANY of its fields
+    # is already populated in the checkpoint.
+    PHASE_DATA_MAP = {
+        "discovery": ("subdomains", "mx_records", "historical_dns"),
+        "probing": ("alive_hosts", "ports", "headers", "technologies"),
+        "admin_origin": ("admin_panels", "primary_admin_panels", "origin_ips"),
+        "analysis": ("risk_scores", "attack_paths", "mitre_attack", "kill_chain", "findings"),
+        "visualization": ("attack_paths",),
+    }
+
     def _maybe_resume(self, ctx) -> set:
         """
         Load a checkpoint (if configured) and merge its data into `ctx`.
-        Returns the set of phases that were already completed in the
-        checkpoint so the caller can skip them.
+        Returns the set of pipeline phases that were already completed in
+        the checkpoint so the caller can skip them.
         """
-        from core.checkpoint import load_checkpoint, completed_phases
+        from core.checkpoint import load_checkpoint
         if not self.resume_from:
             return set()
         cp = load_checkpoint(self.resume_from)
@@ -437,7 +462,10 @@ class ScannerRunner:
         ctx.mitre_attack = cp.mitre_attack or ctx.mitre_attack
         ctx.kill_chain = cp.kill_chain or ctx.kill_chain
         ctx.findings = cp.findings or ctx.findings
-        done = set(completed_phases(cp))
+        done = {
+            phase for phase, fields in self.PHASE_DATA_MAP.items()
+            if any(getattr(cp, f, None) for f in fields)
+        }
         if done:
             logger.info("Resumed from %s: %d phase(s) already done",
                         self.resume_from, len(done))
@@ -451,6 +479,15 @@ class ScannerRunner:
         """
         domain = sanitize_domain(domain)
         ctx = ScanContext(domain=domain)
+
+        # Scope validation (strict mode aborts here)
+        if self.scope is not None:
+            try:
+                self.scope.validate_primary()
+            except Exception as e:
+                logger.error("Scope violation: %s", e)
+                ctx.add_error("scope", str(e))
+                raise
 
         # Resume support: figure out which phases we can skip
         done = self._maybe_resume(ctx)

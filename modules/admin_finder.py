@@ -206,7 +206,7 @@ def find_admin_panels(alive_hosts, emit=None):
                 # Respect the global rate limiter so we don't get IP-banned
                 try:
                     from core.rate_limiter import get_limiter
-                    get_limiter().acquire()
+                    get_limiter().wait()
                 except Exception:
                     pass  # limiter not configured yet — proceed unsynced
                 r = requests.get(

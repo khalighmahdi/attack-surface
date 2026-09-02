@@ -37,7 +37,7 @@ def subdomain_ip_correlation(alive_hosts: List[Dict]) -> List[Dict]:
 
     for host in alive_hosts:
         ip = host.get("ip")
-        hostname = host.get("host")
+        hostname = host.get("domain") or host.get("host")
 
         if not ip or not hostname:
             continue

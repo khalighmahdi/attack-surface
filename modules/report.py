@@ -1,9 +1,16 @@
 # modules/report.py
 
+import html as _html
 import logging
 import json
 from datetime import datetime, timezone
 from typing import Dict, Any
+
+
+def esc(value) -> str:
+    """HTML-escape any value before interpolation into the report."""
+    return _html.escape(str(value if value is not None else ""), quote=True)
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,6 +51,8 @@ def generate_html_report(results: Dict[str, Any]) -> None:
         f"reports/html/report_{target}_"
         f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.html"
     )
+    # remember for callers (runner summary / tests)
+    globals()["LAST_REPORT_PATH"] = report_filename
 
     # ---------- Risk ----------
     risk = analysis.get("risk", {})
@@ -64,7 +73,7 @@ def generate_html_report(results: Dict[str, Any]) -> None:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Attack Surface Scan Report – {target}</title>
+<title>Attack Surface Scan Report – {esc(target)}</title>
 <style>
 body {{
     font-family: Arial, sans-serif;
@@ -118,8 +127,8 @@ pre {{
 <h1>Attack Surface Scan Report</h1>
 <p><strong>Target:</strong> {target}</p>
 <p><strong>Scan Date:</strong> {scan_date}</p>
-<p><strong>Tool Version:</strong> {meta.get('version', 'N/A')}</p>
-<p><strong>Environment:</strong> {meta.get('environment', 'N/A')}</p>
+<p><strong>Tool Version:</strong> {esc(meta.get('version', 'N/A'))}</p>
+<p><strong>Environment:</strong> {esc(meta.get('environment', 'N/A'))}</p>
 <h2>Overall Risk Score: <span class="risk-score">{score}</span></h2>
 """)
 
@@ -146,8 +155,8 @@ pre {{
         html.append("<ul>")
         for h in alive:
             html.append(
-                f"<li>{h.get('domain')} "
-                f"(IP: {h.get('ip', 'N/A')}, "
+                f"<li>{esc(h.get('domain'))} "
+                f"(IP: {esc(h.get('ip', 'N/A'))}, "
                 f"Protocol: {h.get('protocol', 'N/A')})</li>"
             )
         html.append("</ul>")
@@ -170,7 +179,7 @@ pre {{
             port_text = ""
             if data.get("open_ports"):
                 port_text = "<br>".join(
-                    f"{p.get('port')}/{p.get('service', 'unknown')}"
+                    f"{esc(p.get('port'))}/{esc(p.get('service', 'unknown'))}"
                     for p in data["open_ports"]
                 )
             elif data.get("error"):
@@ -204,8 +213,8 @@ pre {{
 
             html.append(
                 f"<tr><td>{domain}</td>"
-                f"<td>{data.get('url', 'N/A')}</td>"
-                f"<td>{data.get('status_code', 'N/A')}</td>"
+                f"<td>{esc(data.get('url', 'N/A'))}</td>"
+                f"<td>{esc(data.get('status_code', 'N/A'))}</td>"
                 f"<td>{techs}</td></tr>"
             )
         html.append("</tbody></table>")
@@ -233,9 +242,9 @@ pre {{
 
             html.append(
                 f"<tr><td>{domain}</td>"
-                f"<td>{data.get('status_code', 'N/A')}</td>"
+                f"<td>{esc(data.get('status_code', 'N/A'))}</td>"
                 f"<td class='issues'>{issues_html}</td>"
-                f"<td><pre>{json.dumps(data.get('all_headers', {}), indent=2)}</pre></td>"
+                f"<td><pre>{esc(json.dumps(data.get('all_headers', {}), indent=2))}</pre></td>"
                 f"</tr>"
             )
         html.append("</tbody></table>")
@@ -267,10 +276,10 @@ pre {{
             vendor = p.get("vendor") or "Unknown"
             html.append(
                 f"<tr>"
-                f"<td><strong>{p.get('domain', 'N/A')}</strong></td>"
-                f"<td><a href='{p.get('url', '#')}'>{p.get('url', 'N/A')}</a></td>"
+                f"<td><strong>{esc(p.get('domain', 'N/A'))}</strong></td>"
+                f"<td><a href='{esc(p.get('url', '#'))}'>{esc(p.get('url', 'N/A'))}</a></td>"
                 f"<td>{vendor}</td>"
-                f"<td>{p.get('score', 0)}</td>"
+                f"<td>{esc(p.get('score', 0))}</td>"
                 f"<td>{protected_html}</td>"
                 f"<td>{notes_html}</td>"
                 f"</tr>"
@@ -297,10 +306,10 @@ pre {{
                 html.append(
                     f"<tr>"
                     f"<td>{host}</td>"
-                    f"<td>{p.get('path', 'N/A')}{primary_mark}</td>"
-                    f"<td>{p.get('status_code', 'N/A')}</td>"
-                    f"<td>{p.get('panel_type', 'unknown')}</td>"
-                    f"<td>{p.get('url', 'N/A')}</td>"
+                    f"<td>{esc(p.get('path', 'N/A'))}{primary_mark}</td>"
+                    f"<td>{esc(p.get('status_code', 'N/A'))}</td>"
+                    f"<td>{esc(p.get('panel_type', 'unknown'))}</td>"
+                    f"<td>{esc(p.get('url', 'N/A'))}</td>"
                     f"</tr>"
                 )
         html.append("</tbody></table>")
@@ -313,6 +322,8 @@ pre {{
         with open(report_filename, "w", encoding="utf-8") as f:
             f.write("\n".join(html))
         logging.info("HTML report generated: %s", report_filename)
+        return report_filename
     except IOError as e:
         logging.error("Failed to write HTML report: %s", e)
+        return ""
 
