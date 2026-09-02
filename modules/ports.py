@@ -115,6 +115,81 @@ def _run_nmap_scan(ip_address: str) -> dict:
 
 
 # -------------------------
+
+# -------------------------
+# Batch Nmap Scan (fast)
+# -------------------------
+def _run_nmap_batch(targets: list) -> dict:
+    """
+    Scan many IPs in ONE nmap invocation using -iL.
+    targets: [(domain, ip), ...] with ip != None
+    Returns {domain: {ip, open_ports:[...]}} (+ per-host 'error' keys kept)
+    """
+    import tempfile, os
+    results = {}
+    ips = {}
+    for domain, ip in targets:
+        results[domain] = {"ip": ip, "open_ports": []}
+        if ip:
+            ips.setdefault(ip, []).append(domain)
+
+    if not ips:
+        return results
+
+    common_ports = "21,22,23,25,53,80,110,135,139,143,443,445,3306,3389,8080,8443"
+
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tf:
+        for ip in ips:
+            tf.write(ip + "\n")
+        list_path = tf.name
+
+    command = [
+        "nmap", "-Pn", "-sT", "-T4",
+        f"-p{common_ports}",
+        "-iL", list_path,
+        "-oG", "-",
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True,
+                                check=True, timeout=300)
+        # grepable format: "Host: 1.2.3.4 ()\tPorts: 80/open/tcp//http///..."
+        for line in result.stdout.splitlines():
+            if not line or line.startswith("#") or "Ports:" not in line:
+                continue
+            host_part, _, ports_part = line.partition("Ports:")
+            ip = host_part.split("Host:", 1)[-1].split("(")[0].strip()
+            open_ports = []
+            for entry in ports_part.split(", "):
+                if "/open/" not in entry:
+                    continue
+                parts = entry.split("/")
+                try:
+                    port_num = int(parts[0])
+                    service = parts[4] if len(parts) > 4 else "unknown"
+                except Exception:
+                    continue
+                open_ports.append({"port": port_num, "service": service, "protocol": "tcp"})
+            for domain in ips.get(ip, []):
+                results[domain]["open_ports"] = open_ports
+    except FileNotFoundError:
+        for domain in results:
+            results[domain]["error"] = "Nmap not installed"
+    except subprocess.TimeoutExpired:
+        for domain in results:
+            if not results[domain].get("open_ports"):
+                results[domain]["error"] = "Nmap scan timed out"
+    except subprocess.CalledProcessError as e:
+        err = (e.stderr or "nmap failed").strip()[:120]
+        for domain in results:
+            results[domain]["error"] = err
+    finally:
+        try:
+            os.unlink(list_path)
+        except OSError:
+            pass
+    return results
+
+# -------------------------
 # Public API
 # -------------------------
 def scan_ports(alive_hosts: list) -> dict:
@@ -133,44 +208,22 @@ def scan_ports(alive_hosts: list) -> dict:
         logging.info("No alive hosts to scan ports")
         return {}
 
-    port_scan_results = {}
-    logging.info("Starting port scanning for %d hosts...", len(alive_hosts))
+    port_scan_results = _run_nmap_batch(
+        [(h.get("domain"), h.get("ip")) for h in alive_hosts]
+    )
 
-    for host_info in alive_hosts:
-        domain = host_info.get("domain")
-        ip = host_info.get("ip")
-
-        if not ip:
-            logging.warning("Skipping %s: no IP address", domain)
-            port_scan_results[domain] = {
-                "error": "No IP address available"
-            }
-
-            if ndjson_emit:
-                ndjson_emit({
-                    "type": "port_scan",
-                    "domain": domain,
-                    "error": "No IP address"
-                })
-
-            continue
-
-        logging.debug("Scanning ports for %s (%s)", domain, ip)
-        result = _run_nmap_scan(ip)
-        port_scan_results[domain] = result
-
-        # -------------------------
-        # NDJSON event
-        # -------------------------
+    for domain, result in port_scan_results.items():
+        if result.get("error"):
+            logging.warning("Port scan %s: %s", domain, result["error"])
         if ndjson_emit:
             ndjson_emit({
                 "type": "port_scan",
                 "domain": domain,
-                "ip": ip,
+                "ip": result.get("ip"),
                 "open_ports": result.get("open_ports", []),
-                "error": result.get("error")
+                "error": result.get("error"),
             })
 
-    logging.info("Port scanning completed")
+    logging.info("Port scanning completed (batch mode)")
     return port_scan_results
 
