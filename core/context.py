@@ -68,6 +68,7 @@ class ScanContext:
 
     # Phase 3: Origin / Backend
     origin_ips: List[Dict[str, Any]] = field(default_factory=list)
+    setup_pages: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
 
     # Phase 4: Events (raw normalized events for risk engine)
     events: List[Dict[str, Any]] = field(default_factory=list)
@@ -84,7 +85,7 @@ class ScanContext:
 
     # Meta
     scan_time: str = field(default_factory=utcnow_iso)
-    version: str = "v0.7.0"
+    version: str = "v0.8.0"
     errors: List[str] = field(default_factory=list)
 
     # ---- Convenience helpers ----
@@ -161,6 +162,7 @@ class ScanContext:
                 "kill_chain": self.kill_chain,
                 "admin_panels": self.admin_panels,
                 "primary_admin_panels": self.primary_admin_panels,
+                "setup_pages": self.setup_pages,
                 "origin_ips": self.origin_ips,
             },
         }

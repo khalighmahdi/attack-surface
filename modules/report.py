@@ -290,6 +290,22 @@ pre {{
         html.append("<p>No high-confidence primary admin panel detected.</p>")
 
     # ---------- All admin panels (for completeness) ----------
+    # ---------- Exposed CMS setup pages (CRITICAL) ----------
+    setup_pages = analysis.get("setup_pages", {}) or {}
+    if setup_pages:
+        html.append("<h2>🚨 Exposed CMS Setup Pages (CRITICAL)</h2>")
+        html.append("<p>The CMS is <strong>half-installed</strong> — anyone can complete the setup and take over the site. Fix immediately.</p>")
+        html.append("<table><thead><tr><th>Host</th><th>CMS</th><th>URL</th><th>Status</th></tr></thead><tbody>")
+        for host, pages in setup_pages.items():
+            for pg in pages:
+                html.append(
+                    f"<tr><td><strong>{esc(host)}</strong></td>"
+                    f"<td>{esc(pg.get('cms', '?'))}</td>"
+                    f"<td><a href='{esc(pg.get('url', '#'))}'>{esc(pg.get('url', 'N/A'))}</a></td>"
+                    f"<td>{esc(pg.get('status_code', 'N/A'))}</td></tr>"
+                )
+        html.append("</tbody></table>")
+
     all_panels = analysis.get("admin_panels", {})
     if all_panels:
         html.append("<h3>All admin/login endpoints found</h3>")

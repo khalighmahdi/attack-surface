@@ -303,6 +303,30 @@ class ScannerRunner:
             except Exception as e:
                 logger.warning("admin_finder failed: %s", e)
 
+        # Exposed CMS setup pages (WordPress install.php, ...) — CRITICAL
+        if ctx.alive_hosts:
+            logger.info("[Phase 3] CMS setup page detection")
+            try:
+                from modules.setup_page_detector import detect_setup_pages
+                setups = self._safe("detect_setup_pages",
+                                    detect_setup_pages, ctx.alive_hosts,
+                                    rate_limiter=self.limiter) or {}
+                if setups:
+                    ctx.setup_pages = setups
+                    for host, pages in setups.items():
+                        for pg in pages:
+                            ctx.add_event({
+                                "type": "SETUP_PAGE_EXPOSED",
+                                "domain": host,
+                                "url": pg["url"],
+                                "cms": pg["cms"],
+                                "severity": "critical",
+                            })
+                    logger.warning("  -> %d host(s) with exposed setup pages!",
+                                   len(setups))
+            except ImportError:
+                logger.warning("setup_page_detector not available")
+
         if not self.skip_origin and ctx.alive_hosts:
             logger.info("[Phase 3] Origin IP correlation")
             try:
@@ -400,9 +424,10 @@ class ScannerRunner:
             import os
             os.makedirs("reports", exist_ok=True)
             os.makedirs("reports/html", exist_ok=True)
-            from modules.exporter import export_csv, export_markdown
+            from modules.exporter import export_csv, export_markdown, export_json
             export_csv(results, "reports/output.csv")
             export_markdown(results, "reports/output.md")
+            export_json(results, "reports/output.json")
         except Exception as e:
             logger.warning("CSV/MD export failed: %s", e)
 
