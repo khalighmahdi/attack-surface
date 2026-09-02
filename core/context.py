@@ -83,9 +83,14 @@ class ScanContext:
     # Phase 6: Payloads
     payloads: List[Dict[str, Any]] = field(default_factory=list)
 
+    # Blue-team (v0.9)
+    blue_team_diff: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    takeover_risks: List[Dict[str, Any]] = field(default_factory=list)
+    cve_watchlist: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+
     # Meta
     scan_time: str = field(default_factory=utcnow_iso)
-    version: str = "v0.8.0"
+    version: str = "v0.9.0"
     errors: List[str] = field(default_factory=list)
 
     # ---- Convenience helpers ----
@@ -164,5 +169,8 @@ class ScanContext:
                 "primary_admin_panels": self.primary_admin_panels,
                 "setup_pages": self.setup_pages,
                 "origin_ips": self.origin_ips,
+                "takeover_risks": self.takeover_risks,
+                "cve_watchlist": self.cve_watchlist,
+                "blue_team_diff": self.blue_team_diff,
             },
         }

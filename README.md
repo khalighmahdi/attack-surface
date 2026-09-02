@@ -80,3 +80,32 @@ The scope module enforces your target list — use it.
   XSS-safe HTML report, scope enforcement wired into discovery,
   fixed rate-limiter/origin/resume bugs, dnspython dependency.
 - v0.7.0: unified CLI, rate limiting, scope, checkpointing, CDN awareness.
+
+
+## Blue-Team Mode (v0.9)
+
+Built for defenders — continuous attack-surface monitoring:
+
+| Feature | What it does |
+|---------|--------------|
+| **Baseline & Diff** | Auto-saves a snapshot; every next scan reports NEW/GONE hosts, opened/closed ports, new admin panels, new setup pages, risk deltas |
+| **Subdomain takeover check** | Flags dangling CNAME fingerprints (GitHub Pages, S3, Azure, Heroku, Shopify, Fastly, Zendesk...) |
+| **CVE watchlist** | Maps fingerprinted tech versions to known CVEs via NVD (`--cves`) |
+| **SOC telemetry** | Stream findings as **CEF syslog** to your SIEM, or push alerts to **Slack webhook** / **Telegram** |
+
+```bash
+# daily cron with Telegram on-call alerts + SIEM stream
+python3 attack_surface.py -d example.com \
+    --tg-token <BOT_TOKEN> --tg-chat <CHAT_ID> \
+    --syslog siem.internal:514
+
+# CVE watchlist too
+python3 attack_surface.py -d example.com --cves
+
+# disable baseline
+python3 attack_surface.py -d example.com --no-baseline
+```
+
+Change categories reported by the baseline diff:
+`NEW_HOSTS`, `GONE_HOSTS`, `NEW_OPEN_PORTS`, `CLOSED_PORTS`,
+`NEW_ADMIN_PANELS`, `NEW_SETUP_PAGES`, `RISK_DELTA`.

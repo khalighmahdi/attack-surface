@@ -98,6 +98,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable checkpoint writing (useful for ephemeral scans).",
     )
     p.add_argument(
+        "--no-baseline", action="store_true",
+        help="Disable blue-team baseline diff (reports/baselines/)",
+    )
+    p.add_argument(
+        "--syslog", type=str, default=None, metavar="HOST[:PORT]",
+        help="Stream findings as CEF syslog to a SIEM collector",
+    )
+    p.add_argument(
+        "--webhook", type=str, default=None,
+        help="Push high/critical alerts to a Slack-compatible webhook",
+    )
+    p.add_argument(
+        "--tg-token", type=str, default=None,
+        help="Telegram bot token for on-call alerts",
+    )
+    p.add_argument(
+        "--tg-chat", type=str, default=None,
+        help="Telegram chat ID for on-call alerts",
+    )
+    p.add_argument(
+        "--cves", action="store_true",
+        help="Map fingerprinted technologies to known CVEs (NVD API)",
+    )
+    p.add_argument(
         "--update", action="store_true",
         help="Check for and apply updates via git, then exit",
     )
@@ -120,7 +144,7 @@ def do_update() -> int:
         from core.context import ScanContext
         current_version = ScanContext(domain="x").version.lstrip("v")
     except Exception:
-        current_version = "0.7.0"
+        current_version = "0.9.0"
     check_for_updates(current_version)
     return 0
 
@@ -237,9 +261,15 @@ def main(argv=None) -> int:
         scope=scope,
         checkpoint_path=None if args.no_checkpoint else args.checkpoint,
         resume_from=args.resume,
+        use_baseline=not args.no_baseline,
+        syslog_target=args.syslog,
+        webhook_url=args.webhook,
+        telegram_token=args.tg_token,
+        telegram_chat=args.tg_chat,
+        map_cves=args.cves,
     )
 
-    print(f"[+] Attack Surface Scanner v0.7.0")
+    print(f"[+] Attack Surface Scanner v0.9.0")
     print(f"[+] Target: {domain}")
     print(f"[+] Flags : ports={'OFF' if args.no_ports else 'ON'}, "
           f"admin={'OFF' if args.no_admin else 'ON'}, "

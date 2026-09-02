@@ -290,6 +290,57 @@ pre {{
         html.append("<p>No high-confidence primary admin panel detected.</p>")
 
     # ---------- All admin panels (for completeness) ----------
+    # ---------- Takeover risks ----------
+    takeovers = analysis.get("takeover_risks", []) or []
+    if takeovers:
+        html.append("<h2>☠️ Possible Subdomain Takeover (CRITICAL)</h2>")
+        html.append("<table><thead><tr><th>Host</th><th>Service</th><th>Evidence</th></tr></thead><tbody>")
+        for t in takeovers:
+            html.append(
+                f"<tr><td><strong>{esc(t.get('host'))}</strong></td>"
+                f"<td>{esc(t.get('service'))}</td>"
+                f"<td>{esc(t.get('evidence_url'))}</td></tr>"
+            )
+        html.append("</tbody></table>")
+
+    # ---------- Blue-team diff ----------
+    bdiff = analysis.get("blue_team_diff", {}) or {}
+    if any(bdiff.values()):
+        html.append("<h2>🛡 Attack-Surface Changes Since Last Scan</h2>")
+        labels = {"NEW_HOSTS": "🟢 New hosts", "GONE_HOSTS": "🔴 Gone hosts",
+                  "NEW_OPEN_PORTS": "🟠 Newly opened ports",
+                  "CLOSED_PORTS": "⚪ Closed ports",
+                  "NEW_ADMIN_PANELS": "🟠 New admin panels",
+                  "NEW_SETUP_PAGES": "🚨 New setup pages",
+                  "RISK_DELTA": "📉 Risk score changes"}
+        for key, title in labels.items():
+            items = bdiff.get(key) or []
+            if not items:
+                continue
+            html.append(f"<h3>{title} ({len(items)})</h3><ul>")
+            for it in items[:30]:
+                if isinstance(it, dict):
+                    html.append(f"<li>{esc(json.dumps(it, ensure_ascii=False))}</li>")
+                else:
+                    html.append(f"<li>{esc(it)}</li>")
+            html.append("</ul>")
+
+    # ---------- CVE watchlist ----------
+    cves = analysis.get("cve_watchlist", {}) or {}
+    if cves:
+        html.append("<h2>🔎 CVE Watchlist (NVD, CVSS ≥ High)</h2>")
+        html.append("<table><thead><tr><th>Host</th><th>Technology</th><th>CVEs</th></tr></thead><tbody>")
+        for host, entries in cves.items():
+            for e in entries:
+                ids = ", ".join(
+                    f"{c.get('id')} ({c.get('cvss', '?')})" for c in e.get("cves", [])[:6]
+                )
+                html.append(
+                    f"<tr><td>{esc(host)}</td><td>{esc(e.get('tech'))}</td>"
+                    f"<td>{esc(ids)}</td></tr>"
+                )
+        html.append("</tbody></table>")
+
     # ---------- Exposed CMS setup pages (CRITICAL) ----------
     setup_pages = analysis.get("setup_pages", {}) or {}
     if setup_pages:
