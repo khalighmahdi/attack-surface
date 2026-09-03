@@ -44,7 +44,8 @@ def export_csv(results: Dict[str, Any], filename: str) -> None:
         port_info = network.get("ports", {}).get(domain, {})
         if port_info.get("open_ports"):
             row["Open Ports"] = ", ".join(
-                f"{p.get('port')}/{p.get('service', 'unknown')}"
+                (f"{p.get('port')}/{p.get('service', 'unknown')}"
+                 + (f" ({p['banner']})" if p.get("banner") else ""))
                 for p in port_info["open_ports"]
             )
         elif port_info.get("error"):

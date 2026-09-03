@@ -179,7 +179,8 @@ pre {{
             port_text = ""
             if data.get("open_ports"):
                 port_text = "<br>".join(
-                    f"{esc(p.get('port'))}/{esc(p.get('service', 'unknown'))}"
+                    (f"{esc(p.get('port'))}/{esc(p.get('service', 'unknown'))}"
+                     + (f" — <strong>{esc(p.get('banner'))}</strong>" if p.get("banner") else ""))
                     for p in data["open_ports"]
                 )
             elif data.get("error"):
@@ -290,6 +291,25 @@ pre {{
         html.append("<p>No high-confidence primary admin panel detected.</p>")
 
     # ---------- All admin panels (for completeness) ----------
+    # ---------- Exposed databases (from port banners) ----------
+    _ports = network.get("ports", {}) or {}
+    db_rows = []
+    for _h, _info in _ports.items():
+        for _p in (_info.get("open_ports") or []):
+            if _p.get("port") in (3306, 5432, 27017, 6379):
+                db_rows.append((_h, _p))
+    if db_rows:
+        html.append("<h2>🗄 Exposed Database Ports (CRITICAL)</h2>")
+        html.append("<p>Database services reachable from the internet — restrict with a firewall immediately.</p>")
+        html.append("<table><thead><tr><th>Host</th><th>Port/Service</th><th>Banner</th></tr></thead><tbody>")
+        for _h, _p in db_rows:
+            html.append(
+                f"<tr><td><strong>{esc(_h)}</strong></td>"
+                f"<td>{esc(_p.get('port'))}/{esc(_p.get('service'))}</td>"
+                f"<td>{esc(_p.get('banner', ''))}</td></tr>"
+            )
+        html.append("</tbody></table>")
+
     # ---------- Takeover risks ----------
     takeovers = analysis.get("takeover_risks", []) or []
     if takeovers:

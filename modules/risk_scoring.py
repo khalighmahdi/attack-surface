@@ -20,6 +20,7 @@ FINDING_WEIGHTS = {
     "MISSING_REFERRER_POLICY": 3,
     "ADMIN_PANEL_EXPOSED": 12,
     "SETUP_PAGE_EXPOSED": 30,   # half-installed CMS = site takeover
+    "DATABASE_PORT_EXPOSED": 20,  # DB reachable from the internet
 }
 
 SEVERITY_MULTIPLIER = {

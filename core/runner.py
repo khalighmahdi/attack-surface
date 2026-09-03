@@ -202,6 +202,7 @@ class ScannerRunner:
                 ctx.ports = {}
             # Emit risk events for open high-risk ports
             from modules.risk_scoring import HIGH_RISK_PORTS
+            import re as _re
             for host, info in ctx.ports.items():
                 for p in (info.get("open_ports") or []):
                     evt = {
@@ -209,9 +210,27 @@ class ScannerRunner:
                         "domain": host,
                         "port": p.get("port"),
                         "service": p.get("service"),
+                        "banner": p.get("banner"),
                         "severity": "high" if p.get("port") in HIGH_RISK_PORTS else "medium",
                     }
                     ctx.add_event(evt)
+                    # banner-driven intelligence (blue-team)
+                    b = (p.get("banner") or "")
+                    bl = b.lower()
+                    if p.get("port") in (3306, 5432, 27017, 6379):
+                        ctx.add_event({
+                            "type": "DATABASE_PORT_EXPOSED",
+                            "domain": host, "port": p.get("port"),
+                            "banner": b, "severity": "critical",
+                        })
+                    m = _re.search(r"(\d+\.\d+(?:\.\d+)?)", b)
+                    if m and p.get("port") in (21, 22, 25, 110, 143, 53):
+                        ctx.add_event({
+                            "type": "SERVICE_VERSION_BANNER",
+                            "domain": host, "port": p.get("port"),
+                            "banner": b, "version": m.group(1),
+                            "severity": "info",
+                        })
             logger.info("  -> ports for %d hosts", len(ctx.ports))
         else:
             logger.info("[Phase 2] Probing: port scan SKIPPED (--no-ports)")
