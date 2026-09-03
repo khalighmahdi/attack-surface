@@ -71,14 +71,20 @@ def _run_nmap_scan(ip_address: str) -> dict:
                 try:
                     port_num = int(parts[0])
                     service = parts[4] if len(parts) > 4 else "unknown"
+                    banner = ""
+                    for cand in (parts[6] if len(parts) > 6 else "",
+                                 parts[5] if len(parts) > 5 else ""):
+                        if cand and cand != "-":
+                            banner = cand
+                            break
                 except Exception:
                     continue
 
-                open_ports.append({
-                    "port": port_num,
-                    "service": service,
-                    "protocol": "tcp"
-                })
+                svc = {"port": port_num, "service": service, "protocol": "tcp"}
+                if banner and banner not in ("", "-"):
+                    svc["banner"] = banner
+                    svc["service_versioned"] = f"{service} — {banner}".strip(" —")
+                open_ports.append(svc)
 
         return {
             "ip": ip_address,
@@ -145,6 +151,9 @@ def _run_nmap_batch(targets: list) -> dict:
 
     command = [
         "nmap", "-Pn", "-sT", "-T4",
+        # service + version detection: "pure-ftpd 1.0.36" instead of just "ftp"
+        "-sV", "--version-intensity", "2",
+        "--version-light",
         f"-p{common_ports}",
         "-iL", list_path,
         "-oG", "-",
@@ -166,9 +175,25 @@ def _run_nmap_batch(targets: list) -> dict:
                 try:
                     port_num = int(parts[0])
                     service = parts[4] if len(parts) > 4 else "unknown"
+                    # grepable layout: port/state/proto/owner/service/version/name
+                    # "21/open/tcp//ftp//Pure-FTPd//" -> parts[6] = "Pure-FTPd"
+                    banner = ""
+                    for cand in (parts[6] if len(parts) > 6 else "",
+                                 parts[5] if len(parts) > 5 else ""):
+                        if cand and cand != "-":
+                            banner = cand
+                            break
                 except Exception:
                     continue
-                open_ports.append({"port": port_num, "service": service, "protocol": "tcp"})
+                svc = {
+                    "port": port_num,
+                    "service": service or "unknown",
+                    "protocol": "tcp",
+                }
+                if banner and banner not in ("", "-"):
+                    svc["banner"] = banner
+                    svc["service_versioned"] = f"{service} — {banner}".strip(" —")
+                open_ports.append(svc)
             for domain in ips.get(ip, []):
                 results[domain]["open_ports"] = open_ports
     except FileNotFoundError:
