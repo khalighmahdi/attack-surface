@@ -33,9 +33,21 @@ def enumerate_subdomains(domain: str) -> list:
         logging.warning("Error decoding JSON from crt.sh: %s", e)
 
     # Example 2: Add common subdomains (bruteforce-like)
-    common_prefixes = ["www", "mail", "ftp", "dev", "test", "admin", "blog", "api"]
+    try:
+        from core.wordlists import load_prefixes
+        common_prefixes = load_prefixes()
+        logging.info("using wordlist prefixes: %d", len(common_prefixes))
+    except Exception:
+        common_prefixes = ["www", "mail", "ftp", "dev", "test", "admin", "blog", "api"]
     for prefix in common_prefixes:
         subdomains.add(f"{prefix}.{domain}")
+
+    # Optional Kali-tool enrichment (amass/subfinder) - fail-soft
+    try:
+        from modules.external_tools import enrich_subdomains
+        enrich_subdomains(domain, subdomains)
+    except Exception as e:
+        logging.debug("external enrichment skipped: %s", e)
 
     logging.info("Subdomain enumeration completed. Found %d unique subdomains.", len(subdomains))
     return sorted(list(subdomains))
