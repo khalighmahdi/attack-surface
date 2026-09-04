@@ -566,6 +566,12 @@ class ScannerRunner:
             export_csv(results, "reports/output.csv")
             export_markdown(results, "reports/output.md")
             export_json(results, "reports/output.json")
+            # Kali interop: Metasploit/Zenmap can db_import this
+            try:
+                from modules.exporter import export_nmap_xml
+                export_nmap_xml(results, "reports/output.xml")
+            except Exception as _e:
+                logger.debug("nmap-xml export skipped: %s", _e)
         except Exception as e:
             logger.warning("CSV/MD export failed: %s", e)
 

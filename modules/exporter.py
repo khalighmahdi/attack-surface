@@ -243,6 +243,17 @@ def export_markdown(results: Dict[str, Any], filename: str) -> None:
 
 
 # -------------------------------------------------
+# Nmap XML Export (Kali interop)
+# -------------------------------------------------
+def export_nmap_xml(results: Dict[str, Any], filename: str) -> None:
+    """Export port results as Nmap XML for Metasploit/Zenmap import."""
+    from modules.nmap_xml import write_xml
+    network = results.get("network", {})
+    write_xml(network.get("ports", {}), filename)
+
+
+
+# -------------------------------------------------
 # JSON Export
 # -------------------------------------------------
 def export_json(results: Dict[str, Any], filename: str) -> None:
