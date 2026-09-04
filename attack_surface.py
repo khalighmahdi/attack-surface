@@ -130,6 +130,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="SAFE active probes: TLS audit, login liveness (1 attempt), DNS AXFR+DNSSEC",
     )
     p.add_argument(
+        "--wordlist", type=str, default=None,
+        help="Custom subdomain wordlist (Kali paths auto-detected)",
+    )
+    p.add_argument(
         "--config", type=str, default=None,
         help="Path to config.yaml (defaults: ~/.config/attack-surface/)",
     )
