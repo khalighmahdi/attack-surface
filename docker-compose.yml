@@ -1,0 +1,10 @@
+# docker-compose.yml - persistent monitoring setup
+services:
+  scan:
+    build: .
+    volumes:
+      - ./reports:/opt/attack-surface/reports
+    environment:
+      - NVD_API_KEY=${NVD_API_KEY:-}
+      - TG_TOKEN=${TG_TOKEN:-}
+      - TG_CHAT=${TG_CHAT:-}
