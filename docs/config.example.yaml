@@ -1,0 +1,16 @@
+# ~/.config/attack-surface/config.yaml
+# Attack Surface Scanner - user defaults
+# CLI flags always override these values.
+
+# domain: example.com      # optional default target
+rate: 5
+no-ports: false           # skip nmap (mobile/slow networks)
+cves-deep: true           # CPE-exact CVE matching
+poc: false                # safe active probes (TLS/login/AXFR)
+
+# scope: ~/targets.txt
+# syslog: "siem.internal:514"
+# webhook: "https://hooks.slack.com/services/XXX/YYY/ZZZ"
+# tg-token: "123456:ABC-DEF..."
+# tg-chat: "111222333"
+# nvd-api-key: ""

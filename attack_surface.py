@@ -130,6 +130,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="SAFE active probes: TLS audit, login liveness (1 attempt), DNS AXFR+DNSSEC",
     )
     p.add_argument(
+        "--config", type=str, default=None,
+        help="Path to config.yaml (defaults: ~/.config/attack-surface/)",
+    )
+    p.add_argument(
         "--update", action="store_true",
         help="Check for and apply updates via git, then exit",
     )
@@ -187,12 +191,14 @@ def print_summary(ctx) -> None:
 
     # Risk overview
     if ctx.risk_scores:
+        from core.term import risk_bar
         print("  Risk by host:")
         for host, info in ctx.risk_scores.items():
             if isinstance(info, dict):
                 level = info.get("level", "?")
                 score = info.get("score", 0)
-                print(f"    - {host:40s} {level:8s} ({score})")
+                bar = risk_bar(score)
+                print(f"    - {host:40s} {level:8s} {bar}")
         print()
 
     # Top findings
@@ -223,6 +229,11 @@ def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     setup_logging(verbose=args.verbose)
+    try:
+        from core.config import load_config, apply_to_args
+        apply_to_args(args, load_config(getattr(args, "config", None)))
+    except Exception:
+        pass  # config optional
 
     # --update is a special case: no domain required
     if args.update:

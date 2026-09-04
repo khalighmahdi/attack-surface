@@ -3,7 +3,7 @@ Version: 0.10.0
 Section: utils
 Priority: optional
 Architecture: all
-Depends: python3, python3-requests, python3-dnspython, nmap
+Depends: python3, python3-requests, python3-dnspython, python3-yaml, nmap
 Recommends: openssl
 Suggests: wapiti, nikto
 Maintainer: Mahdi Khaligh <khalighmahdi@users.noreply.github.com>
