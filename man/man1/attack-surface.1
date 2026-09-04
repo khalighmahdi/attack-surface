@@ -1,0 +1,87 @@
+.TH ATTACK-SURFACE 1 "2026" "attack-surface 0.10" "User Commands"
+.SH NAME
+attack\-surface \- modular attack\-surface reconnaissance and monitoring toolkit
+.SH SYNOPSIS
+.B attack\-surface.py
+\fB\-d\fR \fIdomain\fR [\fIoptions\fR]
+.SH DESCRIPTION
+.B attack\-surface
+discovers and grades the external attack surface of a domain:
+subdomain discovery, host liveness, service/port banners (nmap \-sV),
+security\-header auditing, technology fingerprinting, CDN/origin
+detection, admin\-panel discovery, exposed CMS setup pages,
+subdomain\-takeover fingerprints, baseline diffing for continuous
+monitoring, CPE\-exact CVE watchlists (NVD), safe active checks
+(TLS audit, login liveness, DNS AXFR/DNSSEC) and SOC telemetry
+(CEF syslog, Slack, Telegram).
+.PP
+All discovery is scope\-checked and rate\-limited. Results are exported
+as HTML (XSS\-safe), CSV, Markdown, JSON and NDJSON streams.
+.SH OPTIONS
+.TP
+.BR \-d ", " \-\-domain " " \fIdomain\fR
+Primary target domain (required).
+.TP
+.BR \-\-rate " " \fIn\fR
+Max requests per second (token bucket, default 5).
+.TP
+.BR \-\-no\-ports
+Skip the nmap phase entirely.
+.TP
+.BR \-\-scope " " \fIfile\fR
+Enforce target scope from file (one host per line; warn|soft|strict).
+.TP
+.BR \-\-cves
+Keyword CVE watchlist from NVD (fast, some noise).
+.TP
+.BR \-\-cves\-deep
+Exact CPE\-matching CVE scan (NVD CPE API). Preferred.
+.TP
+.BR \-\-poc
+Safe active probes: TLS audit/grade, login liveness (one attempt),
+DNS AXFR + DNSSEC check. Never destructive.
+.TP
+.BR \-\-syslog " " \fIhost[:port]\fR
+Stream CEF events to a SIEM collector over UDP syslog.
+.TP
+.BR \-\-webhook " " \fIurl\fR
+Push high/critical alerts to a Slack\-compatible webhook.
+.TP
+.BR \-\-tg\-token " " \fItoken\fR
+Telegram bot token for on\-call alerts (with \fB\-\-tg\-chat\fR).
+.TP
+.BR \-\-tg\-chat " " \fIchat_id\fR
+Telegram chat id for on\-call alerts.
+.TP
+.BR \-\-resume " " \fIfile\fR
+Resume an interrupted scan from its checkpoint.
+.TP
+.BR \-\-no\-baseline
+Disable blue\-team baseline diffing for this run.
+.TP
+.BR \-\-update
+Self\-update from the configured Git remote.
+.SH FILES
+.TP
+.I reports/
+All generated artifacts (html/, baselines/, output.json, ...).
+.TP
+.I wordlists/
+Bundled wordlists (common subdomain prefixes, panel paths).
+.SH EXIT STATUS
+0 on success. Non\-zero on configuration or fatal errors.
+.SH EXAMPLES
+.TP
+Full scan with versioned banners and safe PoC:
+.B attack\-surface.py \-d example.com \-\-cves\-deep \-\-poc
+.TP
+Daily monitoring with Telegram alerts:
+.B attack\-surface.py \-d example.com \-\-no\-ports \-\-tg\-token BOT \-\-tg\-chat CHAT
+.SH LEGAL
+Only scan systems you own or have explicit written permission to test.
+The scope module exists to enforce that. Misuse is your responsibility.
+.SH AUTHOR
+Mahdi Khaligh <khalighmahdi>
+.SH SEE ALSO
+.BR nmap (1),
+.BR curl (1)
