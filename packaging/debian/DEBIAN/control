@@ -1,0 +1,21 @@
+Package: attack-surface
+Version: 0.10.0
+Section: utils
+Priority: optional
+Architecture: all
+Depends: python3, python3-requests, python3-dnspython, nmap
+Recommends: openssl
+Suggests: wapiti, nikto
+Maintainer: Mahdi Khaligh <khalighmahdi@users.noreply.github.com>
+Description: Modular attack-surface reconnaissance and blue-team monitoring
+ Discovers and grades the external attack surface of a domain:
+ subdomain discovery, nmap -sV service banners, security-header auditing,
+ technology fingerprinting, CDN/origin detection, admin-panel discovery,
+ exposed CMS setup pages, subdomain-takeover fingerprints, baseline
+ diffing for continuous monitoring, CPE-exact CVE watchlists (NVD) and
+ safe active checks (TLS audit, login liveness, DNS AXFR/DNSSEC).
+ Exports XSS-safe HTML, CSV, Markdown, JSON; streams CEF syslog,
+ Slack and Telegram alerts.
+ .
+ Home-page: https://github.com/khalighmahdi/attack-surface
+Tag: role::program, security::recon, implemented-in::python, interface::commandline
