@@ -87,6 +87,7 @@ class ScanContext:
     blue_team_diff: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     takeover_risks: List[Dict[str, Any]] = field(default_factory=list)
     cve_watchlist: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    poc_results: Dict[str, Any] = field(default_factory=dict)
 
     # Meta
     scan_time: str = field(default_factory=utcnow_iso)
@@ -171,6 +172,7 @@ class ScanContext:
                 "origin_ips": self.origin_ips,
                 "takeover_risks": self.takeover_risks,
                 "cve_watchlist": self.cve_watchlist,
+                "poc_results": self.poc_results,
                 "blue_team_diff": self.blue_team_diff,
             },
         }

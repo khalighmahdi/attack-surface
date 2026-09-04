@@ -119,7 +119,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--cves", action="store_true",
-        help="Map fingerprinted technologies to known CVEs (NVD API)",
+        help="Map fingerprinted technologies to known CVEs (NVD keyword API)",
+    )
+    p.add_argument(
+        "--cves-deep", action="store_true",
+        help="Precise CPE-based CVE matching with exact versions (NVD CPE API)",
+    )
+    p.add_argument(
+        "--poc", action="store_true",
+        help="SAFE active probes: TLS audit, login liveness (1 attempt), DNS AXFR+DNSSEC",
     )
     p.add_argument(
         "--update", action="store_true",
@@ -267,6 +275,8 @@ def main(argv=None) -> int:
         telegram_token=args.tg_token,
         telegram_chat=args.tg_chat,
         map_cves=args.cves,
+        cve_deep=args.cves_deep,
+        active_poc=args.poc,
     )
 
     print(f"[+] Attack Surface Scanner v0.9.0")

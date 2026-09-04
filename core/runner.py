@@ -69,7 +69,11 @@ class ScannerRunner:
         telegram_token: str | None = None,
         telegram_chat: str | None = None,
         map_cves: bool = False,
+        cve_deep: bool = False,
+        active_poc: bool = False,
     ):
+        self.cve_deep = cve_deep
+        self.active_poc = active_poc
         self.use_baseline = use_baseline
         self.syslog_target = syslog_target
         self.webhook_url = webhook_url
@@ -481,7 +485,18 @@ class ScannerRunner:
         except Exception as e:
             logger.warning("takeover check failed: %s", e)
 
-        if self.map_cves:
+        if self.cve_deep:
+            logger.info("[Phase 5.5] Blue-team: CVE DEEP scan (CPE exact-match)")
+            try:
+                from modules.cve_deep import deep_scan
+                ctx.cve_watchlist = self._safe(
+                    "cve_deep", deep_scan, ctx.technologies) or {}
+                total = sum(len(h.get("cves", []))
+                            for v in ctx.cve_watchlist.values() for h in v)
+                logger.info("  -> %d exact CVE(s)", total)
+            except Exception as e:
+                logger.warning("cve deep failed: %s", e)
+        elif self.map_cves:
             logger.info("[Phase 5.5] Blue-team: CVE watchlist (NVD)")
             try:
                 from modules.cve_mapper import map_cves
@@ -492,6 +507,23 @@ class ScannerRunner:
                 logger.info("  -> %d CVE(s) on watchlist", total)
             except Exception as e:
                 logger.warning("cve mapping failed: %s", e)
+
+        if self.active_poc:
+            logger.info("[Phase 5.5] Blue-team: ACTIVE PoC (tls/login/axfr) — safe mode")
+            try:
+                from modules.active_poc import run_all
+                ctx.poc_results = self._safe(
+                    "active_poc", run_all, ctx.alive_hosts,
+                    ctx.domain, rate_limiter=self.limiter) or {}
+                tls_bad = [t for t in ctx.poc_results.get("tls", []) if t.get("issues")]
+                axfr = (ctx.poc_results.get("dns") or {}).get("axfr_allowed")
+                if axfr:
+                    ctx.add_event({"type": "DNS_ZONE_TRANSFER", "domain": ctx.domain,
+                                   "severity": "high"})
+                logger.info("  -> TLS graded hosts: %d, bad: %d, AXFR: %s",
+                            len(ctx.poc_results.get("tls", [])), len(tls_bad), axfr)
+            except Exception as e:
+                logger.warning("active poc failed: %s", e)
 
         # SOC telemetry
         if ctx.events and (self.syslog_target or self.webhook_url or self.telegram_token):

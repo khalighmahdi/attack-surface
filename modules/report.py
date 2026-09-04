@@ -361,6 +361,40 @@ pre {{
                 )
         html.append("</tbody></table>")
 
+    # ---------- Active PoC results ----------
+    poc = analysis.get("poc_results") or {}
+    if poc.get("tls"):
+        html.append("<h2>🔐 TLS Audit</h2>")
+        html.append("<table><thead><tr><th>Host</th><th>Protocol</th><th>Cipher</th><th>Cert days</th><th>Grade</th><th>Issues</th></tr></thead><tbody>")
+        for t in poc["tls"]:
+            issues = ", ".join(t.get("issues", [])) or "—"
+            html.append(
+                f"<tr><td>{esc(t.get('host'))}</td>"
+                f"<td>{esc(t.get('protocol'))}</td>"
+                f"<td>{esc(t.get('cipher', ''))}</td>"
+                f"<td>{esc(t.get('cert_expires_in_days', '—'))}</td>"
+                f"<td><strong>{esc(t.get('grade'))}</strong></td>"
+                f"<td>{esc(issues)}</td></tr>"
+            )
+        html.append("</tbody></table>")
+    if poc.get("login"):
+        html.append("<h2>🗝 Login Surfaces (liveness probe — 1 attempt)</h2>")
+        html.append("<table><thead><tr><th>URL</th><th>Form</th><th>Password field</th><th>Wrong-login status</th></tr></thead><tbody>")
+        for l in poc["login"]:
+            html.append(
+                f"<tr><td>{esc(l.get('url'))}</td>"
+                f"<td>{'✅' if l.get('has_login_form') else '—'}</td>"
+                f"<td>{'✅' if l.get('has_password_field') else '—'}</td>"
+                f"<td>{esc(l.get('wrong_login_status', '—'))}</td></tr>"
+            )
+        html.append("</tbody></table>")
+    dns_poc = poc.get("dns") or {}
+    if dns_poc:
+        html.append("<h2>🧭 DNS Health</h2><ul>")
+        html.append(f"<li>AXFR (zone transfer) allowed: <strong>{'YES — MISCONFIGURED!' if dns_poc.get('axfr_allowed') else 'no (good)'}</strong></li>")
+        html.append(f"<li>DNSSEC: <strong>{esc(dns_poc.get('dnssec'))}</strong></li>")
+        html.append("</ul>")
+
     # ---------- Exposed CMS setup pages (CRITICAL) ----------
     setup_pages = analysis.get("setup_pages", {}) or {}
     if setup_pages:
