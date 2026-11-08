@@ -29,7 +29,7 @@ import requests
 
 logger = logging.getLogger("AttackSurface.WebMisconf")
 
-TIMEOUT = 8
+TIMEOUT = 5
 UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36", "Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
 
 BACKUP_PATHS = [
@@ -246,45 +246,70 @@ def check_ip_allowlist_enforcing(base_url: str) -> List[Dict[str, Any]]:
     return out
 
 
-def run_checks(alive_hosts: list, rate_limiter=None) -> List[Dict[str, Any]]:
-    """Run all misconfiguration checks; returns flat findings list."""
+def _audit_host(host, rate_limiter=None) -> List[Dict[str, Any]]:
+    """Run all misconfiguration checks for a single host (thread-safe)."""
     findings: List[Dict[str, Any]] = []
 
     def _rl():
         if rate_limiter is not None:
             rate_limiter.wait()
 
-    for h in alive_hosts or []:
-        d = h.get("domain") if isinstance(h, dict) else h
-        proto = h.get("protocol", "https") if isinstance(h, dict) else "https"
-        if not d:
-            continue
-        base = f"{proto}://{d}"
-        bypass_found = False
-        for check_fn in (check_cors, check_trace, check_listing,
-                         check_backups, check_server_pages,
-                         check_ip_allowlist_bypass):
-            try:
-                _rl()
-                for f in check_fn(base):
-                    f["domain"] = d
-                    findings.append(f)
-                    if f.get("type") == "IP_ALLOWLIST_HEADER_BYPASS":
-                        bypass_found = True
-                    logger.warning("MISCONFIG %s %s %s",
-                                   f.get("severity"), f.get("type"), d)
-            except Exception as e:
-                logger.debug("check %s on %s failed: %s", check_fn.__name__, d, e)
-        # The "enforced at the network layer" note is a claim that the gate
-        # held. It must never be emitted for a host where a forged header
-        # just walked through — that would report the site as insulated and
-        # bypassable in the same breath.
-        if not bypass_found:
-            try:
-                _rl()
-                for f in check_ip_allowlist_enforcing(base):
-                    f["domain"] = d
-                    findings.append(f)
-            except Exception as e:
-                logger.debug("allowlist enforcing check on %s failed: %s", d, e)
+    d = host.get("domain") if isinstance(host, dict) else host
+    proto = host.get("protocol", "https") if isinstance(host, dict) else "https"
+    if not d:
+        return findings
+    base = f"{proto}://{d}"
+    bypass_found = False
+    for check_fn in (check_cors, check_trace, check_listing,
+                     check_backups, check_server_pages,
+                     check_ip_allowlist_bypass):
+        try:
+            _rl()
+            for f in check_fn(base):
+                f["domain"] = d
+                findings.append(f)
+                if f.get("type") == "IP_ALLOWLIST_HEADER_BYPASS":
+                    bypass_found = True
+                logger.warning("MISCONFIG %s %s %s",
+                               f.get("severity"), f.get("type"), d)
+        except Exception as e:
+            logger.debug("check %s on %s failed: %s", check_fn.__name__, d, e)
+    # The "enforced at the network layer" note is a claim that the gate
+    # held. It must never be emitted for a host where a forged header
+    # just walked through — that would report the site as insulated and
+    # bypassable in the same breath.
+    if not bypass_found:
+        try:
+            _rl()
+            for f in check_ip_allowlist_enforcing(base):
+                f["domain"] = d
+                findings.append(f)
+        except Exception as e:
+            logger.debug("allowlist enforcing check on %s failed: %s", d, e)
+    return findings
+
+
+def run_checks(alive_hosts: list, rate_limiter=None) -> List[Dict[str, Any]]:
+    """Run all misconfiguration checks; returns flat findings list.
+
+    Hosts are audited concurrently so a single slow/unreachable host cannot
+    stall the whole phase (each request already has its own short timeout).
+    """
+    findings: List[Dict[str, Any]] = []
+    hosts = list(alive_hosts or [])
+    if not hosts:
+        return findings
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    workers = min(4, len(hosts))
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = [ex.submit(_audit_host, h, rate_limiter) for h in hosts]
+            for fut in as_completed(futures):
+                try:
+                    findings.extend(fut.result())
+                except Exception as e:
+                    logger.debug("host audit failed: %s", e)
+    except Exception as e:
+        logger.debug("concurrent misconfig audit failed: %s", e)
     return findings
