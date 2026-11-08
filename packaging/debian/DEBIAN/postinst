@@ -1,0 +1,12 @@
+#!/bin/bash
+set -e
+INSTALL_DIR=/usr/share/attack-surface
+# executable shim
+cat > /usr/bin/attack-surface <<'EOF'
+#!/usr/bin/env bash
+exec python3 /usr/share/attack-surface/attack_surface.py "$@"
+EOF
+chmod 755 /usr/bin/attack-surface
+# compile bytecode for speed
+python3 -m compileall -q $INSTALL_DIR >/dev/null 2>&1 || true
+echo "attack-surface installed. Try: attack-surface --help"

@@ -1,0 +1,12 @@
+.git
+__pycache__
+*.pyc
+*.pyo
+.venv
+venv
+reports
+*.deb
+.stage-deb-*
+~
+.idea
+.vscode

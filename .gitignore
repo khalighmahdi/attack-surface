@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual Environments
+venv/
+.venv/
+
+# Environment & Secrets
+.env
+
+# Reports (generated data)
+reports/
+# Sample / one-off HTML reports in the project root
+/report_*.html
+
+# Build artifacts
+*.deb
+.stage-deb-*
+
+# Stray shell-tilde directory (bug artifact from an unexpanded ~ path)
+/~/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
