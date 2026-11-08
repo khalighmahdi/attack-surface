@@ -79,6 +79,39 @@ docker compose --profile watch up -d watch   # scheduled diff-scan + TG alerts
 
 ---
 
+## 🔌 MCP server (Model Context Protocol)
+
+The app can run as a **stdio MCP server**, so any MCP-capable agent (OpenCode,
+Claude Desktop, Cursor, ...) can start scans, poll status, list results, and open
+the dashboard as tools — not just as a CLI.
+
+```bash
+python attack_surface.py mcp
+```
+
+### Register it in OpenCode (`~/.config/opencode/opencode.json`)
+```json
+{
+  "mcp": {
+    "attack-surface": {
+      "type": "local",
+      "command": ["python3", "/path/to/attack-surface/attack_surface.py", "mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+Exposed tools:
+- `project_info` — path/version
+- `run_scan` — start a read-only scan (returns a job id)
+- `scan_status` — poll a job and get tail output
+- `list_scans` — list stored scans with risk scores
+- `start_dashboard` — launch the web Ops Console and get its URL
+
+Scans run asynchronously; `run_scan` returns immediately so agents don't block on
+multi-minute nmap work.
+
 ## 📋 CLI examples
 
 ```bash

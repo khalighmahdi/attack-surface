@@ -222,7 +222,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Custom subdomain wordlist (Kali paths auto-detected)",
     )
     p.add_argument(
-        "command", nargs="?", default=None, choices=["serve", "watch"],
+        "command", nargs="?", default=None, choices=["serve", "watch", "mcp"],
         help="serve: live web dashboard | watch: scheduled diff-scan daemon",
     )
     p.add_argument(
@@ -444,6 +444,10 @@ def main(argv=None) -> int:
 
     if getattr(args, "command", None) == "watch":
         return _watch_loop(args)
+
+    if getattr(args, "command", None) == "mcp":
+        from modules.mcp_server import main as _mcp_main
+        return _mcp_main()
 
     # DB helper commands (no domain needed)
     if getattr(args, "list_scans", False):
