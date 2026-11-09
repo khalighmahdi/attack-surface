@@ -37,56 +37,74 @@ SETUP_PAGES = [
 ]
 
 
+def _audit_host_setup(host, rate_limiter=None) -> tuple[str, List[dict]]:
+    domain = host.get("domain") if isinstance(host, dict) else host
+    protocol = host.get("protocol", "https") if isinstance(host, dict) else "https"
+    out: List[dict] = []
+    if not domain:
+        return domain, out
+
+    for path, needle, cms in SETUP_PAGES:
+        url = f"{protocol}://{domain}{path}"
+        try:
+            if rate_limiter is not None:
+                rate_limiter.wait()
+            else:
+                try:
+                    from core.rate_limiter import get_limiter
+                    get_limiter().wait()
+                except Exception:
+                    pass
+
+            r = requests.get(url, timeout=TIMEOUT, allow_redirects=True,
+                             headers={"User-Agent": "AttackSurfaceScanner"})
+            body_head = (r.text or "")[:20000].lower()
+            if r.status_code == 200 and needle.lower() in body_head:
+                finding = {
+                    "path": path,
+                    "url": r.url,
+                    "status_code": r.status_code,
+                    "cms": cms,
+                    "severity": "critical",
+                }
+                out.append(finding)
+
+                if ndjson_emit:
+                    ndjson_emit({
+                        "type": "SETUP_PAGE_EXPOSED",
+                        "domain": domain,
+                        **finding,
+                    })
+                logger.warning("CRITICAL: exposed %s setup page at %s", cms, r.url)
+
+        except requests.exceptions.RequestException:
+            continue
+        except Exception as e:
+            logger.debug("setup check error %s: %s", url, e)
+    return domain, out
+
+
 def detect_setup_pages(alive_hosts: list, rate_limiter=None) -> Dict[str, List[dict]]:
     """
     Returns {host: [ {path, url, status_code, cms, severity}, ... ]}
     Only reports pages that returned 200 AND actually contain the CMS marker
     (avoids false positives from soft-404 homepages).
+    Hosts are probed concurrently to keep total runtime bounded.
     """
     results: Dict[str, List[dict]] = {}
+    hosts = [h for h in (alive_hosts or [])]
+    if not hosts:
+        return results
 
-    for host in alive_hosts or []:
-        domain = host.get("domain") if isinstance(host, dict) else host
-        protocol = host.get("protocol", "https") if isinstance(host, dict) else "https"
-        if not domain:
-            continue
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        for path, needle, cms in SETUP_PAGES:
-            url = f"{protocol}://{domain}{path}"
+    with ThreadPoolExecutor(max_workers=min(4, len(hosts))) as ex:
+        futures = [ex.submit(_audit_host_setup, h, rate_limiter) for h in hosts]
+        for fut in as_completed(futures):
             try:
-                if rate_limiter is not None:
-                    rate_limiter.wait()
-                else:
-                    try:
-                        from core.rate_limiter import get_limiter
-                        get_limiter().wait()
-                    except Exception:
-                        pass
-
-                r = requests.get(url, timeout=TIMEOUT, allow_redirects=True,
-                                 headers={"User-Agent": "AttackSurfaceScanner"})
-                body_head = (r.text or "")[:20000].lower()
-                if r.status_code == 200 and needle.lower() in body_head:
-                    finding = {
-                        "path": path,
-                        "url": r.url,
-                        "status_code": r.status_code,
-                        "cms": cms,
-                        "severity": "critical",
-                    }
-                    results.setdefault(domain, []).append(finding)
-
-                    if ndjson_emit:
-                        ndjson_emit({
-                            "type": "SETUP_PAGE_EXPOSED",
-                            "domain": domain,
-                            **finding,
-                        })
-                    logger.warning("CRITICAL: exposed %s setup page at %s", cms, r.url)
-
-            except requests.exceptions.RequestException:
-                continue
+                domain, findings = fut.result()
+                if domain and findings:
+                    results[domain] = findings
             except Exception as e:
-                logger.debug("setup check error %s: %s", url, e)
-
+                logger.debug("setup audit failed: %s", e)
     return results
