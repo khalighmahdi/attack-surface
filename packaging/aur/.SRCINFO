@@ -1,0 +1,24 @@
+pkgbase = attack-surface
+	pkgdesc = Modular attack-surface reconnaissance and blue-team monitoring toolkit
+	pkgver = 0.22.0
+	pkgrel = 1
+	url = https://github.com/khalighmahdi/attack-surface
+	arch = any
+	license = GPL-3.0-or-later
+	depends = python
+	depends = python-requests
+	depends = python-dnspython
+	depends = python-yaml
+	optdepends = nmap: port scanning
+	optdepends = hydra: credential/rate tooling references
+	optdepends = sqlmap: SQL injection triage
+	optdepends = wpscan: WordPress deep recon
+	optdepends = nikto: web misconfig scanning
+	optdepends = testssl.sh: TLS grading
+	optdepends = metasploit: exploit mapping via msfconsole
+	optdepends = tmux: web terminal sessions
+	optdepends = seclists: larger subdomain wordlists
+	source = attack-surface-0.22.0.tar.gz::https://github.com/khalighmahdi/attack-surface/archive/v0.22.0.tar.gz
+	sha256sums = SKIP
+
+pkgname = attack-surface
