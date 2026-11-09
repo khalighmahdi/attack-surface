@@ -143,6 +143,20 @@ def check_xmlrpc(base: str, s: requests.Session | None = None) -> bool:
         return False
 
 
+# Markers that prove a 200 response is the actual sensitive file and not
+# a soft-404 / "friendly error" page. Mirrors the approach used by
+# web_misconfig.CONFIRM_MARKERS.
+LEAK_MARKERS: dict[str, list[str]] = {
+    "/.env": ["DB_PASSWORD", "APP_KEY", "DATABASE_URL", "APP_SECRET"],
+    "/wp-config.php.bak": ["DB_PASSWORD", "DB_NAME", "table_prefix"],
+    "/wp-config.php~": ["DB_PASSWORD", "DB_NAME", "table_prefix"],
+    "/debug.log": ["PHP ", "Notice", "Warning", "Fatal", "WordPress", "Stack trace"],
+    "/wp-content/debug.log": ["PHP ", "Notice", "Warning", "Fatal", "WordPress", "Stack trace"],
+    "/backup.sql": ["CREATE TABLE", "INSERT INTO"],
+    "/db.sql": ["CREATE TABLE", "INSERT INTO"],
+}
+
+
 def check_leaks(base: str, s: requests.Session | None = None) -> List[Dict[str, str]]:
     """Well-known sensitive paths that should never be public."""
     s = s or _s()
@@ -157,8 +171,18 @@ def check_leaks(base: str, s: requests.Session | None = None) -> List[Dict[str, 
     def probe(p: str) -> Dict[str, str] | None:
         try:
             r = s.get(base + p, timeout=5, allow_redirects=False, stream=True)
-            if r.status_code == 200 and len(r.content or b"") > 0:
-                return {"path": p, "status": str(r.status_code)}
+            if r.status_code != 200 or not (r.content or b""):
+                return None
+            body = (r.content or b"").decode("utf-8", "replace").lower()
+            # Soft-404 / themed error pages often return 200; require a
+            # marker when we know one (especially for debug.log / .env).
+            markers = LEAK_MARKERS.get(p)
+            if markers and not any(m.lower() in body for m in markers):
+                return None
+            # Generic guard: never treat an obvious HTML error page as a leak.
+            if "<title" in body and ("403" in body or "404" in body or "forbidden" in body):
+                return None
+            return {"path": p, "status": str(r.status_code)}
         except Exception:
             pass
         return None
