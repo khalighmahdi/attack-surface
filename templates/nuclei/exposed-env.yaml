@@ -1,0 +1,22 @@
+id: attack-surface-exposed-env
+info:
+  name: Exposed .env file
+  author: khalighmahdi
+  severity: critical
+  description: .env containing secrets is publicly downloadable
+  tags: exposure,config,env
+http:
+  - method: GET
+    path: ["{{BaseURL}}/.env"]
+    matchers-condition: and
+    matchers:
+      - type: status
+        status: [200]
+      - type: word
+        part: body
+        words:
+          - "DB_PASSWORD"
+          - "APP_KEY"
+          - "DATABASE_URL"
+          - "SECRET_KEY"
+        condition: or

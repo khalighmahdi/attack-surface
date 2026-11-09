@@ -1,0 +1,18 @@
+id: attack-surface-exposed-debug-log
+info:
+  name: Exposed PHP debug log
+  author: khalighmahdi
+  severity: medium
+  description: debug.log discloses stack traces / application internals
+  tags: exposure,logs
+http:
+  - method: GET
+    path: ["{{BaseURL}}/wp-content/debug.log", "{{BaseURL}}/debug.log"]
+    matchers-condition: and
+    matchers:
+      - type: status
+        status: [200]
+      - type: word
+        part: body
+        words: ["PHP", "Notice", "Warning", "Fatal", "Stack trace"]
+        condition: or

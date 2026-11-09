@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Attack Surface Scanner
+GenericName=Attack-surface recon & monitoring
+Comment=Blue-team attack-surface discovery and continuous monitoring
+Exec=sh -c 'attack-surface --help; exec bash'
+Icon=security-high
+Terminal=true
+Type=Application
+Categories=01-info-gathering;03-web-analysis;
+Keywords=recon;subdomain;cve;blue-team;

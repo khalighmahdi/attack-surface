@@ -1,0 +1,6 @@
+requests
+dnspython
+PyYAML
+idna
+pysocks
+msgpack

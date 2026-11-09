@@ -1,0 +1,103 @@
+# Red Team Configuration — Copy to ~/.attack_surface/redteam.yaml and customize
+# All values can be overridden via environment variables: RT_<SECTION>_<KEY>
+
+# Tool configurations (auto-detected if binary not specified)
+hydra:
+  binary: ""  # auto-detect
+  args: []
+  enabled: true
+
+nmap:
+  binary: ""
+  args: []
+  enabled: true
+
+crackmapexec:
+  binary: ""
+  args: []
+  enabled: true
+
+impacket_getuserspns:
+  binary: ""
+  args: ["-request"]
+  enabled: true
+
+impacket_getnpusers:
+  binary: ""
+  args: ["-no-pass", "-dc-ip", "TARGET_IP"]
+  enabled: true
+
+impacket_ntlmrelayx:
+  binary: ""
+  args: ["-tf", "targets.txt"]
+  enabled: true
+
+wpscan:
+  binary: ""
+  args: []
+  enabled: true
+
+nuclei:
+  binary: ""
+  args: []
+  enabled: true
+
+sqlmap:
+  binary: ""
+  args: []
+  enabled: true
+
+# BloodHound
+bloodhound:
+  uri: "bolt://127.0.0.1:7687"
+  user: "neo4j"
+  password: ""  # Set via RT_BLOODHOUND_PASSWORD
+  database: "neo4j"
+  collection_methods:
+    - "Default"
+    - "LocalAdmin"
+    - "GPOLocalGroup"
+    - "PSRemote"
+    - "Session"
+    - "Trusts"
+
+# Metasploit RPC
+metasploit:
+  host: "127.0.0.1"
+  port: 55553
+  user: "msf"
+  password: ""  # REQUIRED - Set via RT_METASPLOIT_PASSWORD
+  ssl: true
+  workspace: "default"
+  auto_start_rpcd: false
+
+# Sliver C2
+sliver:
+  server: "127.0.0.1"
+  port: 31337
+  mtls: true
+  ca_cert: ""  # REQUIRED - Set via RT_SLIVER_CA_CERT
+  client_cert: ""  # REQUIRED - Set via RT_SLIVER_CLIENT_CERT
+  client_key: ""  # REQUIRED - Set via RT_SLIVER_CLIENT_KEY
+  operator: "attack-surface"
+  profile: "http"
+  lhost: ""  # auto-detect
+  lport: 0   # auto-assign
+  timeout: 30
+
+# C2 Framework
+c2:
+  framework: "sliver"  # sliver, mythic, havoc, cobaltstrike
+  config: {}
+
+# Operational settings
+scope_filter: []  # CIDR/hosts allowed for operations
+require_operator_approval: true
+audit_log: "~/.attack_surface/redteam_audit.log"
+default_timeout: 600
+max_concurrent_jobs: 3
+
+# Output
+output_dir: "~/.attack_surface/redteam_results"
+save_raw_output: true
+generate_reports: true

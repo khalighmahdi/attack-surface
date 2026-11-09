@@ -1,0 +1,17 @@
+id: attack-surface-missing-hsts
+info:
+  name: Missing HSTS header
+  author: khalighmahdi
+  severity: medium
+  tags: headers,misconfig
+http:
+  - method: GET
+    path: ["{{BaseURL}}/"]
+    matchers-condition: and
+    matchers:
+      - type: status
+        status: [200, 204, 301, 302]
+      - type: word
+        part: header
+        negative: true
+        words: ["Strict-Transport-Security"]

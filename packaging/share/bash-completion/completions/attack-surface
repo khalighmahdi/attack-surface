@@ -1,0 +1,17 @@
+# bash completion for attack-surface
+_attack_surface() {
+  local cur prev opts
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  opts="-d --domain --rate --no-ports --scope --cves --cves-deep --poc
+        --syslog --webhook --tg-token --tg-chat --resume --no-baseline
+        --no-checkpoint --checkpoint --update --help --version"
+  case "$prev" in
+    -d|--domain) COMPREPLY=( $(compgen -A hostname -- "$cur") ); return 0 ;;
+    --tg-token|--tg-chat|--webhook|--syslog|--checkpoint|--resume) return 0 ;;
+  esac
+  COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
+  return 0
+}
+complete -F _attack_surface attack-surface
