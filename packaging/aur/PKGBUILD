@@ -1,0 +1,49 @@
+# Maintainer: Mahdi Khaligh <khaligh.mahdi@gmail.com>
+pkgname=attack-surface
+pkgver=0.22.0
+pkgrel=1
+pkgdesc="Modular attack-surface reconnaissance and blue-team monitoring toolkit"
+arch=('any')
+url="https://github.com/khalighmahdi/attack-surface"
+license=('GPL-3.0-or-later')
+depends=('python' 'python-requests' 'python-dnspython' 'python-yaml')
+optdepends=(
+    'nmap: port scanning'
+    'hydra: credential/rate tooling references'
+    'sqlmap: SQL injection triage'
+    'wpscan: WordPress deep recon'
+    'nikto: web misconfig scanning'
+    'testssl.sh: TLS grading'
+    'metasploit: exploit mapping via msfconsole'
+    'tmux: web terminal sessions'
+    'seclists: larger subdomain wordlists'
+)
+makedepends=()
+source=("$pkgname-$pkgver.tar.gz::https://github.com/khalighmahdi/attack-surface/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    cd "$srcdir/$pkgname-$pkgver"
+
+    install -d "$pkgdir/usr/share/$pkgname"
+    cp -a core modules wordlists attack_surface.py db_store.py scanner.py \
+       requirements.txt LICENSE README.md "$pkgdir/usr/share/$pkgname/"
+
+    # man page
+    install -Dm644 man/man1/attack-surface.1 "$pkgdir/usr/share/man/man1/attack-surface.1"
+
+    # desktop file + completion, if present in packaging/
+    if [ -f packaging/share/applications/attack-surface.desktop ]; then
+        install -Dm644 packaging/share/applications/attack-surface.desktop \
+            "$pkgdir/usr/share/applications/attack-surface.desktop"
+    fi
+    if [ -f packaging/share/bash-completion/completions/attack-surface ]; then
+        install -Dm644 packaging/share/bash-completion/completions/attack-surface \
+            "$pkgdir/etc/bash_completion.d/attack-surface"
+    fi
+
+    # executable wrapper (symlink so ./reports and ~/.attack_surface resolve)
+    chmod 755 "$pkgdir/usr/share/$pkgname/attack_surface.py"
+    install -d "$pkgdir/usr/bin"
+    ln -s "/usr/share/$pkgname/attack_surface.py" "$pkgdir/usr/bin/$pkgname"
+}
