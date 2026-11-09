@@ -401,6 +401,18 @@ td .btn{margin:3px 6px 3px 0}
  .nav-items{flex-direction:row;flex-wrap:wrap}
 }
 progress{width:100%;height:4px}
+/* ── Omega dynamic skin ─────────────────────────────── */
+main{animation:fadeinI .7s cubic-bezier(.2,.7,.2,1) both}
+@keyframes fadeinI{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+table tbody tr{animation:rowInI .35s ease both}
+@keyframes rowInI{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
+button,.btn,header .tag{transition:transform .15s ease,box-shadow .15s ease}
+button:hover{transform:translateY(-1px)}
+#engine-dot,#livephase{animation:glowI 1.8s ease-in-out infinite alternate}
+@keyframes glowI{from{text-shadow:0 0 0 var(--ac);opacity:.9}to{text-shadow:0 0 10px var(--ac);opacity:1}}
+.card,.panel{transition:box-shadow .2s ease}
+.card:hover{box-shadow:0 8px 24px rgba(230,46,0,.15)}
+/* end Omega */
 </style></head><body>
 <header>
  <svg class="dragon" viewBox="0 0 64 64" aria-hidden="true">
