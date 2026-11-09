@@ -22,6 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # rockyou ships gzipped; decompress so hydra paths just work
 RUN gunzip -kf /usr/share/wordlists/rockyou.txt.gz || true
 
+# Dalfox (XSS scanner) — pinned release for reproducible builds
+RUN curl -fsSL -o /tmp/dalfox.tar.gz \
+        "https://github.com/hahwul/dalfox/releases/download/v3.3.0/dalfox-v3.3.0-linux-x86_64.tar.gz" && \
+    tar -xzf /tmp/dalfox.tar.gz -C /usr/local/bin dalfox && \
+    chmod +x /usr/local/bin/dalfox && rm -f /tmp/dalfox.tar.gz || true
+
 # Sliver C2 (pinned; server + client) — installed at BUILD time, not runtime
 RUN curl -fsSL -o /usr/local/bin/sliver-server \
         "https://github.com/BishopFox/sliver/releases/download/${SLIVER_VERSION}/sliver-server_linux-amd64" && \

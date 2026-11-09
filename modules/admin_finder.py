@@ -174,6 +174,106 @@ def _score_panel(panel: Dict, response: requests.Response = None) -> int:
     return score
 
 
+def _scan_admin_host(host, emit=None):
+    domain = host.get("domain") if isinstance(host, dict) else host
+    protocol = host.get("protocol", "https") if isinstance(host, dict) else "https"
+    if not domain:
+        return None, []
+
+    base_url = f"{protocol}://{domain}/"
+    findings = []
+
+    for path in COMMON_ADMIN_PATHS:
+        url = urljoin(base_url, path)
+
+        try:
+            # Respect the global rate limiter so we don't get IP-banned
+            try:
+                from core.rate_limiter import get_limiter
+                get_limiter().wait()
+            except Exception:
+                pass  # limiter not configured yet — proceed unsynced
+            r = requests.get(
+                url,
+                timeout=TIMEOUT,
+                allow_redirects=True,
+                headers={"User-Agent": "AttackSurfaceScanner"},
+            )
+
+            panel_type = _classify_panel(r.url, path)
+            protected = _is_protected(r)
+
+            if r.status_code in (200, 301, 302, 401, 403):
+                finding = {
+                    "path": f"/{path}",
+                    "url": r.url,
+                    "status_code": r.status_code,
+                    "protected": protected,
+                    "panel_type": panel_type,
+                    "_initial_domain": domain,  # used by _score_panel
+                }
+                # Compute the priority score and persist it
+                finding["score"] = _score_panel(finding, r)
+                finding["vendor"] = finding.get("vendor", "")
+                finding["is_primary"] = False  # set below
+                finding["cross_host_redirect"] = bool(finding.get("cross_host_redirect", False))
+                findings.append(finding)
+
+                if emit:
+                    event_type = "admin_panel"
+                    if panel_type == "admin" and r.status_code == 200 and not protected:
+                        event_type = "ADMIN_PANEL_EXPOSED"
+
+                    emit({
+                        "type": event_type,
+                        "domain": domain,
+                        **finding,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+
+                if panel_type == "admin" and r.status_code == 200 and not protected:
+                    register_payload({
+                        "id": f"ffuf_admin_{domain}",
+                        "title": f"Bruteforce admin panel on {domain}",
+                        "description": f"FFUF against exposed admin panel {r.url}",
+                        "command": (
+                            f"ffuf -u '{r.url.rstrip('/')}/FUZZ' "
+                            f"-w '{WORDLIST_PATH}' "
+                            f"-mc 200,301,302,401,403 "
+                            f"-t 40 -timeout 10 "
+                            f"-of json "
+                            f"-o 'ffuf_{domain.replace('.', '_')}_admin.json'"
+                        ),
+                        "requires_expert": True,
+                    })
+
+        except Exception:
+            continue
+
+    if findings:
+        # Mark the highest-scoring panel as the primary for this host.
+        # A primary must have a strictly positive score; otherwise the
+        # "best" panel isn't really a control panel (e.g. all redirects
+        # to a user login form).
+        best = max(findings, key=lambda f: f.get("score", -100))
+        if best.get("score", 0) > 0:
+            best["is_primary"] = True
+            if emit:
+                emit({
+                    "type": "PRIMARY_ADMIN_PANEL",
+                    "domain": domain,
+                    "url": best["url"],
+                    "path": best["path"],
+                    "port": _extract_port(best["url"]),
+                    "vendor": best.get("vendor", ""),
+                    "score": best["score"],
+                    "protected": best["protected"],
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+
+    return domain, findings
+
+
 def find_admin_panels(alive_hosts, emit=None):
     """
     Returns:
@@ -188,106 +288,19 @@ def find_admin_panels(alive_hosts, emit=None):
         }
     """
     results = {}
+    hosts = [h for h in (alive_hosts or [])]
+    if not hosts:
+        return results
 
-    for host in alive_hosts or []:
-        domain = host.get("domain") if isinstance(host, dict) else host
-        protocol = host.get("protocol", "https") if isinstance(host, dict) else "https"
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        if not domain:
-            continue
-
-        base_url = f"{protocol}://{domain}/"
-        findings = []
-
-        for path in COMMON_ADMIN_PATHS:
-            url = urljoin(base_url, path)
-
+    with ThreadPoolExecutor(max_workers=min(4, len(hosts))) as ex:
+        futures = [ex.submit(_scan_admin_host, h, emit) for h in hosts]
+        for fut in as_completed(futures):
             try:
-                # Respect the global rate limiter so we don't get IP-banned
-                try:
-                    from core.rate_limiter import get_limiter
-                    get_limiter().wait()
-                except Exception:
-                    pass  # limiter not configured yet — proceed unsynced
-                r = requests.get(
-                    url,
-                    timeout=TIMEOUT,
-                    allow_redirects=True,
-                    headers={"User-Agent": "AttackSurfaceScanner"},
-                )
-
-                panel_type = _classify_panel(r.url, path)
-                protected = _is_protected(r)
-
-                if r.status_code in (200, 301, 302, 401, 403):
-                    finding = {
-                        "path": f"/{path}",
-                        "url": r.url,
-                        "status_code": r.status_code,
-                        "protected": protected,
-                        "panel_type": panel_type,
-                        "_initial_domain": domain,  # used by _score_panel
-                    }
-                    # Compute the priority score and persist it
-                    finding["score"] = _score_panel(finding, r)
-                    finding["vendor"] = finding.get("vendor", "")
-                    finding["is_primary"] = False  # set below
-                    finding["cross_host_redirect"] = bool(finding.get("cross_host_redirect", False))
-                    findings.append(finding)
-
-                    if emit:
-                        event_type = "admin_panel"
-                        if panel_type == "admin" and r.status_code == 200 and not protected:
-                            event_type = "ADMIN_PANEL_EXPOSED"
-
-                        emit({
-                            "type": event_type,
-                            "domain": domain,
-                            **finding,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                        })
-
-                    if panel_type == "admin" and r.status_code == 200 and not protected:
-                        register_payload({
-                            "id": f"ffuf_admin_{domain}",
-                            "title": f"Bruteforce admin panel on {domain}",
-                            "description": f"FFUF against exposed admin panel {r.url}",
-                            "command": (
-                                f"ffuf -u '{r.url.rstrip('/')}/FUZZ' "
-                                f"-w '{WORDLIST_PATH}' "
-                                f"-mc 200,301,302,401,403 "
-                                f"-t 40 -timeout 10 "
-                                f"-of json "
-                                f"-o 'ffuf_{domain.replace('.', '_')}_admin.json'"
-                            ),
-                            "requires_expert": True,
-                        })
-
-            except Exception:
-                continue
-
-        if findings:
-            # Mark the highest-scoring panel as the primary for this host.
-            # A primary must have a strictly positive score; otherwise the
-            # "best" panel isn't really a control panel (e.g. all redirects
-            # to a user login form).
-            best = max(findings, key=lambda f: f.get("score", -100))
-            if best.get("score", 0) > 0:
-                best["is_primary"] = True
-                best_id = best["url"]
-                if emit:
-                    emit({
-                        "type": "PRIMARY_ADMIN_PANEL",
-                        "domain": domain,
-                        "url": best["url"],
-                        "path": best["path"],
-                        "port": _extract_port(best["url"]),
-                        "vendor": best.get("vendor", ""),
-                        "score": best["score"],
-                        "protected": best["protected"],
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    })
-            results[domain] = findings
-
+                domain, findings = fut.result()
+                if domain and findings:
+                    results[domain] = findings
+            except Exception as e:
+                logging.getLogger("AttackSurface.AdminFinder").debug("admin host audit failed: %s", e)
     return results
-
